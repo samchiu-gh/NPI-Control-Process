@@ -3,12 +3,13 @@ import { Plus, Trash2, Upload, ChevronRight, ChevronUp, ChevronDown, Package, Al
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
 import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+import { getStorage, ref, uploadString, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-storage.js";
 
 // ---------- Firebase setup ----------
 // Fill these in with the values from your Firebase project settings
 // (Project settings → General → Your apps → SDK setup and configuration).
 const firebaseConfig = {
-  apiKey: "AIzaSyCt7pRbjAmK7rFQiOPum1jF2sYzSrP-27g",
+   apiKey: "AIzaSyCt7pRbjAmK7rFQiOPum1jF2sYzSrP-27g",
   authDomain: "npi-control-process.firebaseapp.com",
   projectId: "npi-control-process",
   storageBucket: "npi-control-process.firebasestorage.app",
@@ -18,6 +19,7 @@ const firebaseConfig = {
 const firebaseApp = initializeApp(firebaseConfig);
 const auth = getAuth(firebaseApp);
 const db = getFirestore(firebaseApp);
+const storage = getStorage(firebaseApp);
 
 // ---------- color tokens (inline style, NOT Tailwind arbitrary classes) ----------
 const C = {
@@ -888,11 +890,12 @@ function DashboardView({
     }
   }, " · ", overallDelayed, " 個有流程落後")), /*#__PURE__*/React.createElement("div", {
     style: {
-      display: "grid",
-      gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
-      gap: 16
+      border: "1px solid #E3E4E0",
+      borderRadius: 10,
+      background: "#fff",
+      overflow: "hidden"
     }
-  }, products.map(p => {
+  }, products.map((p, i) => {
     const st = stats[p.id];
     const total = st?.total ?? 0;
     const completed = st?.completed ?? 0;
@@ -903,19 +906,22 @@ function DashboardView({
     return /*#__PURE__*/React.createElement("button", {
       key: p.id,
       onClick: () => onSelect(p.id),
-      className: "text-left p-4",
+      className: "w-full flex items-center gap-4 px-4 py-3",
       style: {
-        border: "1px solid #E3E4E0",
-        borderRadius: 10,
+        textAlign: "left",
+        borderTop: i === 0 ? "none" : "1px solid #F0F1EC",
         background: "#fff"
       }
     }, /*#__PURE__*/React.createElement("div", {
-      className: "flex items-center gap-3 mb-3"
+      className: "flex items-center gap-2.5 shrink-0",
+      style: {
+        width: 190
+      }
     }, /*#__PURE__*/React.createElement("div", {
       className: "flex items-center justify-center rounded shrink-0 overflow-hidden",
       style: {
-        width: 44,
-        height: 44,
+        width: 36,
+        height: 36,
         background: "#F0F1EC"
       }
     }, p.photo ? /*#__PURE__*/React.createElement("img", {
@@ -923,36 +929,28 @@ function DashboardView({
       alt: "",
       className: "w-full h-full object-cover"
     }) : /*#__PURE__*/React.createElement(Package, {
-      size: 18,
+      size: 15,
       color: "#B4B7AF"
     })), /*#__PURE__*/React.createElement("div", {
       className: "min-w-0 flex-1"
     }, /*#__PURE__*/React.createElement("div", {
       className: "truncate",
       style: {
-        fontSize: 14,
+        fontSize: 13,
         fontWeight: 700,
         color: "#1B2430"
       }
     }, p.name || "未命名產品"), /*#__PURE__*/React.createElement("div", {
       className: "mono truncate",
       style: {
-        fontSize: 11,
+        fontSize: 10,
         color: "#8A9099"
       }
-    }, p.companyPN || "—")), delayed && /*#__PURE__*/React.createElement("span", {
-      className: "flex items-center gap-0.5 px-1.5 py-0.5 shrink-0",
+    }, p.companyPN || "—"))), /*#__PURE__*/React.createElement("div", {
+      className: "flex-1 min-w-0"
+    }, /*#__PURE__*/React.createElement("div", {
       style: {
-        fontSize: 10,
-        color: "#C1443C",
-        background: "#FBEDEC",
-        borderRadius: 4
-      }
-    }, /*#__PURE__*/React.createElement(AlertTriangle, {
-      size: 10
-    }), "落後")), /*#__PURE__*/React.createElement("div", {
-      style: {
-        height: 8,
+        height: 7,
         background: "#F0F1EC",
         borderRadius: 4,
         overflow: "hidden"
@@ -963,35 +961,48 @@ function DashboardView({
         width: `${pctDone}%`,
         background: delayed ? "#C1443C" : pctDone === 100 ? "#2F6F6B" : "#1B2430"
       }
-    })), /*#__PURE__*/React.createElement("div", {
-      className: "flex items-center justify-between mt-1.5"
-    }, /*#__PURE__*/React.createElement("span", {
-      className: "mono",
-      style: {
-        fontSize: 11,
-        color: "#8A9099"
-      }
-    }, completed, "/", total, " 流程完成"), /*#__PURE__*/React.createElement("span", {
-      className: "mono",
-      style: {
-        fontSize: 11,
-        color: "#8A9099"
-      }
-    }, pctDone, "%")), total > 0 && /*#__PURE__*/React.createElement("div", {
+    })), total > 0 && /*#__PURE__*/React.createElement("div", {
       className: "truncate mt-1",
       style: {
         fontSize: 11,
-        color: currentStageName ? "#1B2430" : "#2F6F6B",
-        fontWeight: 500
+        color: currentStageName ? "#5B6169" : "#2F6F6B"
       }
-    }, currentStageName ? `目前階段：${currentStageName}` : "已全部完成"), daysLeft !== null && /*#__PURE__*/React.createElement("div", {
-      className: "mt-2 pt-2",
+    }, currentStageName ? `目前階段：${currentStageName}` : "已全部完成")), /*#__PURE__*/React.createElement("div", {
+      className: "mono text-right shrink-0",
+      style: {
+        width: 70,
+        fontSize: 12,
+        color: "#8A9099"
+      }
+    }, completed, "/", total, /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 11,
-        color: daysLeft < 0 ? "#C1443C" : "#8A9099",
-        borderTop: "1px solid #F0F1EC"
+        color: "#1B2430",
+        fontWeight: 600
       }
-    }, daysLeft < 0 ? `已超過預計結案日 ${Math.abs(daysLeft)} 天` : `距預計結案日還有 ${daysLeft} 天`));
+    }, pctDone, "%")), /*#__PURE__*/React.createElement("div", {
+      className: "shrink-0",
+      style: {
+        width: 56
+      }
+    }, delayed && /*#__PURE__*/React.createElement("span", {
+      className: "flex items-center gap-0.5 px-1.5 py-0.5 justify-center",
+      style: {
+        fontSize: 10,
+        color: "#C1443C",
+        background: "#FBEDEC",
+        borderRadius: 4
+      }
+    }, /*#__PURE__*/React.createElement(AlertTriangle, {
+      size: 10
+    }), "落後")), /*#__PURE__*/React.createElement("div", {
+      className: "text-right shrink-0",
+      style: {
+        width: 110,
+        fontSize: 11,
+        color: daysLeft !== null && daysLeft < 0 ? "#C1443C" : "#8A9099"
+      }
+    }, daysLeft !== null ? daysLeft < 0 ? `已超過 ${Math.abs(daysLeft)} 天` : `剩 ${daysLeft} 天` : "—"));
   })));
 }
 function HeaderGantt({
@@ -1221,16 +1232,35 @@ function ProductForm({
   const [plannedEndDate, setPlannedEndDate] = useState(initial?.plannedEndDate || "");
   const [photo, setPhoto] = useState(initial?.photo || "");
   const [photoError, setPhotoError] = useState("");
+  const [uploading, setUploading] = useState(false);
   const handleFile = e => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 150 * 1024) {
-      setPhotoError("圖片請控制在 150KB 以內（所有產品共用同一份雲端資料，多張大圖加總容易超過資料庫單筆上限）");
+    if (file.size > 8 * 1024 * 1024) {
+      setPhotoError("圖片請控制在 8MB 以內");
       return;
     }
     setPhotoError("");
+    setUploading(true);
     const reader = new FileReader();
-    reader.onload = () => setPhoto(reader.result);
+    reader.onload = async () => {
+      try {
+        const path = `product-photos/${uid()}-${file.name}`;
+        const storageRef = ref(storage, path);
+        await uploadString(storageRef, reader.result, "data_url");
+        const url = await getDownloadURL(storageRef);
+        setPhoto(url);
+      } catch (err) {
+        console.error("photo upload failed:", err);
+        setPhotoError("照片上傳失敗，請確認 Firebase Storage 是否已啟用，或重試一次");
+      } finally {
+        setUploading(false);
+      }
+    };
+    reader.onerror = () => {
+      setUploading(false);
+      setPhotoError("讀取檔案失敗，請重試");
+    };
     reader.readAsDataURL(file);
   };
   return /*#__PURE__*/React.createElement("div", {
@@ -1276,16 +1306,18 @@ function ProductForm({
       color: "#5B6169",
       border: "1px solid #D9DBD5",
       borderRadius: 6,
-      cursor: "pointer"
+      cursor: uploading ? "default" : "pointer",
+      opacity: uploading ? 0.6 : 1
     }
   }, /*#__PURE__*/React.createElement(Upload, {
     size: 12
-  }), " 上傳照片", /*#__PURE__*/React.createElement("input", {
+  }), " ", uploading ? "上傳中…" : "上傳照片", /*#__PURE__*/React.createElement("input", {
     type: "file",
     accept: "image/*",
     className: "hidden",
-    onChange: handleFile
-  })), photo && /*#__PURE__*/React.createElement("div", {
+    onChange: handleFile,
+    disabled: uploading
+  })), photo && !uploading && /*#__PURE__*/React.createElement("div", {
     className: "mt-1",
     style: {
       fontSize: 10,
@@ -1367,14 +1399,16 @@ function ProductForm({
       plannedEndDate,
       photo
     }),
+    disabled: uploading,
     className: "px-4 py-2",
     style: {
       fontSize: 14,
       color: "#fff",
       background: "#1B2430",
-      borderRadius: 6
+      borderRadius: 6,
+      opacity: uploading ? 0.6 : 1
     }
-  }, "儲存")))));
+  }, uploading ? "照片上傳中…" : "儲存")))));
 }
 function LabeledInput({
   label,
