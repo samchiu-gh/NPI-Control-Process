@@ -1,0 +1,11 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Only signed-in users may read or write. Since this app has no public
+    // sign-up (accounts are created manually in the Firebase console), this
+    // effectively means "only you".
+    match /kv/{docId} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}
