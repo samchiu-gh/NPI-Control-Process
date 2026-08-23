@@ -9,7 +9,7 @@ import { getStorage, ref, uploadString, getDownloadURL } from "https://www.gstat
 // Fill these in with the values from your Firebase project settings
 // (Project settings → General → Your apps → SDK setup and configuration).
 const firebaseConfig = {
-   apiKey: "AIzaSyCt7pRbjAmK7rFQiOPum1jF2sYzSrP-27g",
+  apiKey: "AIzaSyCt7pRbjAmK7rFQiOPum1jF2sYzSrP-27g",
   authDomain: "npi-control-process.firebaseapp.com",
   projectId: "npi-control-process",
   storageBucket: "npi-control-process.firebasestorage.app",
