@@ -9,12 +9,12 @@ import { getStorage, ref, uploadString, getDownloadURL } from "https://www.gstat
 // Fill these in with the values from your Firebase project settings
 // (Project settings → General → Your apps → SDK setup and configuration).
 const firebaseConfig = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT_ID.appspot.com",
-  messagingSenderId: "YOUR_SENDER_ID",
-  appId: "YOUR_APP_ID"
+   apiKey: "AIzaSyCt7pRbjAmK7rFQiOPum1jF2sYzSrP-27g",
+  authDomain: "npi-control-process.firebaseapp.com",
+  projectId: "npi-control-process",
+  storageBucket: "npi-control-process.firebasestorage.app",
+  messagingSenderId: "426823566143",
+  appId: "1:426823566143:web:a70b2dd31cb82e0528098a"
 };
 const firebaseApp = initializeApp(firebaseConfig);
 const auth = getAuth(firebaseApp);
