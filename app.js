@@ -3,18 +3,18 @@ import { Plus, Trash2, Upload, ChevronRight, ChevronUp, ChevronDown, Package, Al
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
 import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
-import { getStorage, ref, uploadString, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-storage.js";
+import { getStorage, ref, uploadBytesResumable, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-storage.js";
 
 // ---------- Firebase setup ----------
 // Fill these in with the values from your Firebase project settings
 // (Project settings → General → Your apps → SDK setup and configuration).
 const firebaseConfig = {
-  apiKey: "AIzaSyCt7pRbjAmK7rFQiOPum1jF2sYzSrP-27g",
-  authDomain: "npi-control-process.firebaseapp.com",
-  projectId: "npi-control-process",
-  storageBucket: "npi-control-process.firebasestorage.app",
-  messagingSenderId: "426823566143",
-  appId: "1:426823566143:web:a70b2dd31cb82e0528098a"
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+  projectId: "YOUR_PROJECT_ID",
+  storageBucket: "YOUR_PROJECT_ID.appspot.com",
+  messagingSenderId: "YOUR_SENDER_ID",
+  appId: "YOUR_APP_ID"
 };
 const firebaseApp = initializeApp(firebaseConfig);
 const auth = getAuth(firebaseApp);
@@ -1375,6 +1375,7 @@ function ProductForm({
   const [photo, setPhoto] = useState(initial?.photo || "");
   const [photoError, setPhotoError] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [uploadPct, setUploadPct] = useState(0);
   const handleFile = e => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1384,26 +1385,23 @@ function ProductForm({
     }
     setPhotoError("");
     setUploading(true);
-    const reader = new FileReader();
-    reader.onload = async () => {
-      try {
-        const path = `product-photos/${uid()}-${file.name}`;
-        const storageRef = ref(storage, path);
-        await uploadString(storageRef, reader.result, "data_url");
-        const url = await getDownloadURL(storageRef);
-        setPhoto(url);
-      } catch (err) {
-        console.error("photo upload failed:", err);
-        setPhotoError("照片上傳失敗，請確認 Firebase Storage 是否已啟用，或重試一次");
-      } finally {
-        setUploading(false);
-      }
-    };
-    reader.onerror = () => {
+    setUploadPct(0);
+
+    // instant local preview while the real upload runs in the background
+    setPhoto(URL.createObjectURL(file));
+    const path = `product-photos/${uid()}-${file.name}`;
+    const storageRef = ref(storage, path);
+    const task = uploadBytesResumable(storageRef, file);
+    task.on("state_changed", snap => setUploadPct(Math.round(snap.bytesTransferred / snap.totalBytes * 100)), err => {
+      console.error("photo upload failed:", err);
+      setPhotoError("照片上傳失敗，請確認 Firebase Storage 是否已啟用，或重試一次");
+      setPhoto(initial?.photo || ""); // revert the temporary local preview — it's not a real uploaded URL
       setUploading(false);
-      setPhotoError("讀取檔案失敗，請重試");
-    };
-    reader.readAsDataURL(file);
+    }, async () => {
+      const url = await getDownloadURL(task.snapshot.ref);
+      setPhoto(url);
+      setUploading(false);
+    });
   };
   return /*#__PURE__*/React.createElement("div", {
     className: "flex items-center justify-center p-4",
@@ -1453,7 +1451,7 @@ function ProductForm({
     }
   }, /*#__PURE__*/React.createElement(Upload, {
     size: 12
-  }), " ", uploading ? "上傳中…" : "上傳照片", /*#__PURE__*/React.createElement("input", {
+  }), " ", uploading ? `上傳中… ${uploadPct}%` : "上傳照片", /*#__PURE__*/React.createElement("input", {
     type: "file",
     accept: "image/*",
     className: "hidden",
@@ -2665,7 +2663,15 @@ function LoginScreen() {
     try {
       await signInWithEmailAndPassword(auth, email.trim(), password);
     } catch (e) {
-      setError("登入失敗，請確認帳號密碼是否正確");
+      console.error("login failed:", e);
+      const code = e?.code || "unknown";
+      let hint = "";
+      if (code === "auth/invalid-api-key" || code === "auth/api-key-not-valid" || code.includes("network")) {
+        hint = "（這通常代表 app.js 裡的 firebaseConfig 沒有填對，或還是預留字，不是帳密打錯）";
+      } else if (code === "auth/wrong-password" || code === "auth/user-not-found" || code === "auth/invalid-credential") {
+        hint = "（這代表帳號或密碼真的不對，不是設定問題）";
+      }
+      setError(`登入失敗（${code}）${hint}`);
     } finally {
       setBusy(false);
     }
