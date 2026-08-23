@@ -438,6 +438,14 @@ function NPITracker({
     persistProducts(products.filter(p => p.id !== id));
     if (selectedId === id) setSelectedId(null);
   };
+  const moveProduct = (id, direction) => {
+    const idx = products.findIndex(p => p.id === id);
+    const targetIdx = idx + direction;
+    if (idx === -1 || targetIdx < 0 || targetIdx >= products.length) return;
+    const next = [...products];
+    [next[idx], next[targetIdx]] = [next[targetIdx], next[idx]];
+    persistProducts(next);
+  };
   const duplicateProduct = async source => {
     const newProduct = {
       id: uid(),
@@ -767,17 +775,41 @@ function NPITracker({
       fontSize: 12,
       color: C.muted
     }
-  }, "尚無產品計劃", /*#__PURE__*/React.createElement("br", null), "點右上角「＋」新增"), products.map(p => /*#__PURE__*/React.createElement("button", {
+  }, "尚無產品計劃", /*#__PURE__*/React.createElement("br", null), "點右上角「＋」新增"), products.map((p, i) => /*#__PURE__*/React.createElement("div", {
     key: p.id,
+    className: "w-full flex items-center gap-1 px-2",
+    style: {
+      borderBottom: `1px solid ${C.borderLight}`,
+      background: selectedId === p.id ? C.selectedBg : "transparent"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-col shrink-0"
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => moveProduct(p.id, -1),
+    disabled: i === 0,
+    style: {
+      color: i === 0 ? C.borderLight : C.mutedIcon,
+      lineHeight: 0
+    }
+  }, /*#__PURE__*/React.createElement(ChevronUp, {
+    size: 12
+  })), /*#__PURE__*/React.createElement("button", {
+    onClick: () => moveProduct(p.id, 1),
+    disabled: i === products.length - 1,
+    style: {
+      color: i === products.length - 1 ? C.borderLight : C.mutedIcon,
+      lineHeight: 0
+    }
+  }, /*#__PURE__*/React.createElement(ChevronDown, {
+    size: 12
+  }))), /*#__PURE__*/React.createElement("button", {
     onClick: () => {
       setSelectedId(p.id);
       setTab("process");
     },
-    className: "w-full flex items-center gap-3 px-4 py-1.5",
+    className: "flex-1 min-w-0 flex items-center gap-3 py-1.5",
     style: {
-      textAlign: "left",
-      borderBottom: `1px solid ${C.borderLight}`,
-      background: selectedId === p.id ? C.selectedBg : "transparent"
+      textAlign: "left"
     }
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex items-center justify-center rounded shrink-0 overflow-hidden",
@@ -814,7 +846,7 @@ function NPITracker({
     size: 14,
     color: C.mutedIcon,
     className: "shrink-0"
-  })))))), isDesktop && /*#__PURE__*/React.createElement("div", {
+  }))))))), isDesktop && /*#__PURE__*/React.createElement("div", {
     onMouseDown: startDrag,
     title: "拖曳調整寬度",
     className: "hidden md:block shrink-0",
