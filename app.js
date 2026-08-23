@@ -9,12 +9,12 @@ import { getStorage, ref, uploadString, getDownloadURL } from "https://www.gstat
 // Fill these in with the values from your Firebase project settings
 // (Project settings → General → Your apps → SDK setup and configuration).
 const firebaseConfig = {
-   apiKey: "AIzaSyCt7pRbjAmK7rFQiOPum1jF2sYzSrP-27g",
-  authDomain: "npi-control-process.firebaseapp.com",
-  projectId: "npi-control-process",
-  storageBucket: "npi-control-process.firebasestorage.app",
-  messagingSenderId: "426823566143",
-  appId: "1:426823566143:web:a70b2dd31cb82e0528098a"
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+  projectId: "YOUR_PROJECT_ID",
+  storageBucket: "YOUR_PROJECT_ID.appspot.com",
+  messagingSenderId: "YOUR_SENDER_ID",
+  appId: "YOUR_APP_ID"
 };
 const firebaseApp = initializeApp(firebaseConfig);
 const auth = getAuth(firebaseApp);
@@ -144,6 +144,125 @@ function forecastDelay(stageId, stages, memo = {}) {
   return result;
 }
 
+// ---------- default stage template ----------
+// This is the starting template used the very first time (before the user
+// customizes it via the "預設流程範本" tab). Once they save changes there,
+// the customized version is stored under key "template:stages" and takes over.
+const DEFAULT_STAGE_TEMPLATE = [{
+  id: "t1",
+  name: "新需求開案",
+  unit: "產品",
+  form: "新產品評估書",
+  dependsOn: []
+}, {
+  id: "t2",
+  name: "價格評估",
+  unit: "業務",
+  form: "報價單及新產品價格推廣狀況",
+  dependsOn: []
+}, {
+  id: "t3",
+  name: "原樣取得",
+  unit: "產品",
+  form: "請購單、採購單",
+  dependsOn: []
+}, {
+  id: "t4",
+  name: "向廠商購買樣品",
+  unit: "產品",
+  form: "請購單、採購單",
+  dependsOn: []
+}, {
+  id: "t5",
+  name: "制訂測試規範",
+  unit: "產品",
+  form: "新產品評估書",
+  dependsOn: []
+}, {
+  id: "t6",
+  name: "檢驗廠商樣品",
+  unit: "",
+  form: "",
+  dependsOn: []
+}, {
+  id: "t7",
+  name: "全尺寸量測",
+  unit: "品保",
+  form: "檢驗紀錄表",
+  dependsOn: ["t6"]
+}, {
+  id: "t8",
+  name: "功能測試",
+  unit: "測試",
+  form: "檢驗紀錄表",
+  dependsOn: ["t6"]
+}, {
+  id: "t9",
+  name: "壽命測試",
+  unit: "工程",
+  form: "測試報告",
+  dependsOn: ["t6"]
+}, {
+  id: "t10",
+  name: "一般常溫壽命測試",
+  unit: "",
+  form: "",
+  dependsOn: ["t9"]
+}, {
+  id: "t11",
+  name: "高低溫壽命測試",
+  unit: "",
+  form: "",
+  dependsOn: ["t9"]
+}, {
+  id: "t12",
+  name: "製作廠商驗收用圖面",
+  unit: "",
+  form: "",
+  dependsOn: []
+}, {
+  id: "t13",
+  name: "製作客戶承認用圖面",
+  unit: "",
+  form: "",
+  dependsOn: []
+}, {
+  id: "t14",
+  name: "廠內品號及BOM建立",
+  unit: "",
+  form: "",
+  dependsOn: []
+}];
+
+// turns a template (list of {id, name, unit, form, dependsOn}) into real stage
+// records for a newly created product — fresh ids, dependsOn remapped, all
+// execution fields (dates/completed/notes) reset to empty.
+function instantiateStages(template) {
+  const idMap = {};
+  const withNewIds = template.map(t => {
+    const newId = uid();
+    idMap[t.id] = newId;
+    return {
+      ...t,
+      id: newId
+    };
+  });
+  return withNewIds.map(t => ({
+    id: t.id,
+    name: t.name,
+    unit: t.unit,
+    content: "",
+    form: t.form,
+    plannedStart: "",
+    plannedEnd: "",
+    actualStart: "",
+    actualEnd: "",
+    completed: false,
+    dependsOn: (t.dependsOn || []).map(oldId => idMap[oldId]).filter(Boolean),
+    notes: []
+  }));
+}
+
 // ---------- storage wrapper (Firestore-backed) ----------
 // Every key/value pair lives as one document in the "kv" collection, doc id = key.
 // This mirrors the original get/set interface as closely as possible so the rest
@@ -183,10 +302,17 @@ function NPITracker({
   const [saveError, setSaveError] = useState("");
   const [confirmDeleteProduct, setConfirmDeleteProduct] = useState(null);
   const [productStats, setProductStats] = useState({});
+  const [template, setTemplate] = useState(DEFAULT_STAGE_TEMPLATE);
   const [sidebarWidth, setSidebarWidth] = useState(288);
   const [isDesktop, setIsDesktop] = useState(true);
   const containerRef = useRef(null);
   const draggingRef = useRef(false);
+  useEffect(() => {
+    (async () => {
+      const saved = await storageGet("template:stages");
+      if (saved) setTemplate(saved);
+    })();
+  }, []);
   useEffect(() => {
     const mq = window.matchMedia("(min-width: 768px)");
     const update = () => setIsDesktop(mq.matches);
@@ -287,37 +413,6 @@ function NPITracker({
     const ok = await storageSet(`stages:${selectedId}`, list);
     if (!ok) setSaveError("流程資料儲存失敗，請重試");
   };
-  const buildDefaultStages = () => {
-    const mk = (name, unit, form, depKey) => ({
-      key: uid(),
-      name,
-      unit,
-      form,
-      depKey
-    });
-    const t = [mk("新需求開案", "產品", "新產品評估書"), mk("價格評估", "業務", "報價單及新產品價格推廣狀況"), mk("原樣取得", "產品", "請購單、採購單"), mk("向廠商購買樣品", "產品", "請購單、採購單"), mk("制訂測試規範", "產品", "新產品評估書"), mk("檢驗廠商樣品", "", ""), mk("全尺寸量測", "品保", "檢驗紀錄表", 5),
-    // depends on "檢驗廠商樣品" (index 5)
-    mk("功能測試", "測試", "檢驗紀錄表", 5), mk("壽命測試", "工程", "測試報告", 5), mk("一般常溫壽命測試", "", "", 8),
-    // depends on "壽命測試" (index 8)
-    mk("高低溫壽命測試", "", "", 8),
-    // originally written "6-2-2" — treated as a typo, see chat note
-    mk("製作廠商驗收用圖面", "", ""), mk("製作客戶承認用圖面", "", ""), mk("廠內品號及BOM建立", "", "")];
-    const ids = t.map(() => uid());
-    return t.map((s, i) => ({
-      id: ids[i],
-      name: s.name,
-      unit: s.unit,
-      content: "",
-      form: s.form,
-      plannedStart: "",
-      plannedEnd: "",
-      actualStart: "",
-      actualEnd: "",
-      completed: false,
-      dependsOn: s.depKey !== undefined ? [ids[s.depKey]] : [],
-      notes: []
-    }));
-  };
   const saveProduct = async data => {
     if (data.id) {
       persistProducts(products.map(p => p.id === data.id ? {
@@ -330,7 +425,8 @@ function NPITracker({
         id: uid()
       };
       await persistProducts([...products, np]);
-      await storageSet(`stages:${np.id}`, buildDefaultStages());
+      const savedTemplate = await storageGet("template:stages");
+      await storageSet(`stages:${np.id}`, instantiateStages(savedTemplate || DEFAULT_STAGE_TEMPLATE));
       await storageSet(`samples:${np.id}`, []);
       setSelectedId(np.id);
       setTab("process");
@@ -464,6 +560,43 @@ function NPITracker({
     const next = [...stages];
     [next[idx], next[targetIdx]] = [next[targetIdx], next[idx]];
     persistStages(next);
+  };
+
+  // ---- default stage template CRUD (applies to future new products only) ----
+  const persistTemplate = async list => {
+    setTemplate(list);
+    const ok = await storageSet("template:stages", list);
+    if (!ok) setSaveError("範本儲存失敗，請重試");
+  };
+  const addTemplateItem = () => {
+    persistTemplate([...template, {
+      id: uid(),
+      name: "",
+      unit: "",
+      form: "",
+      dependsOn: []
+    }]);
+  };
+  const updateTemplateItem = (id, field, value) => {
+    persistTemplate(template.map(t => t.id === id ? {
+      ...t,
+      [field]: value
+    } : t));
+  };
+  const deleteTemplateItem = id => {
+    const cleaned = template.filter(t => t.id !== id).map(t => ({
+      ...t,
+      dependsOn: (t.dependsOn || []).filter(d => d !== id)
+    }));
+    persistTemplate(cleaned);
+  };
+  const moveTemplateItem = (id, direction) => {
+    const idx = template.findIndex(t => t.id === id);
+    const targetIdx = idx + direction;
+    if (idx === -1 || targetIdx < 0 || targetIdx >= template.length) return;
+    const next = [...template];
+    [next[idx], next[targetIdx]] = [next[targetIdx], next[idx]];
+    persistTemplate(next);
   };
   const ganttRange = useMemo(() => {
     const allDates = [];
@@ -784,6 +917,9 @@ function NPITracker({
   }, {
     k: "samples",
     label: "產品送樣資訊"
+  }, {
+    k: "template",
+    label: "預設流程範本"
   }].map(t => /*#__PURE__*/React.createElement("button", {
     key: t.k,
     onClick: () => setTab(t.k),
@@ -811,6 +947,12 @@ function NPITracker({
     onEditNote: editStageNote,
     onDeleteNote: deleteStageNote,
     pct: pct
+  }), tab === "template" && /*#__PURE__*/React.createElement(TemplateEditor, {
+    template: template,
+    onAdd: addTemplateItem,
+    onUpdate: updateTemplateItem,
+    onDelete: deleteTemplateItem,
+    onReorder: moveTemplateItem
   }))))), showProductForm && /*#__PURE__*/React.createElement(ProductForm, {
     initial: editProduct,
     onCancel: () => {
@@ -1561,6 +1703,187 @@ const inputSm = {
   fontSize: 12,
   width: "100%"
 };
+function TemplateEditor({
+  template,
+  onAdd,
+  onUpdate,
+  onDelete,
+  onReorder
+}) {
+  const [depModalId, setDepModalId] = useState(null);
+  const depModalItem = template.find(t => t.id === depModalId) || null;
+  const toggleDep = (itemId, targetId) => {
+    const item = template.find(t => t.id === itemId);
+    const cur = item.dependsOn || [];
+    const next = cur.includes(targetId) ? cur.filter(d => d !== targetId) : [...cur, targetId];
+    onUpdate(itemId, "dependsOn", next);
+  };
+  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "mb-3"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 14,
+      fontWeight: 600
+    }
+  }, "預設流程範本"), /*#__PURE__*/React.createElement("div", {
+    className: "mt-1",
+    style: {
+      fontSize: 11,
+      color: "#8A9099"
+    }
+  }, "之後「新增產品計劃」時，會自動帶入這裡設定的流程清單當起點。修改這裡不會影響已經建立好的產品——那些產品的流程要改，請到各自的「產品流程」分頁調整。")), /*#__PURE__*/React.createElement("div", {
+    className: "flex justify-end mb-3"
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: onAdd,
+    className: "flex items-center gap-1 px-3 py-1.5",
+    style: {
+      fontSize: 12,
+      color: "#fff",
+      background: "#1B2430",
+      borderRadius: 6
+    }
+  }, /*#__PURE__*/React.createElement(Plus, {
+    size: 13
+  }), " 新增範本項目")), template.length === 0 ? /*#__PURE__*/React.createElement(EmptyState, {
+    text: "範本是空的，新增產品計劃時就不會自動帶入任何流程。點「新增範本項目」開始建立。"
+  }) : /*#__PURE__*/React.createElement("div", {
+    style: {
+      border: "1px solid #E3E4E0",
+      borderRadius: 8,
+      overflow: "auto",
+      maxWidth: "100%"
+    }
+  }, /*#__PURE__*/React.createElement("table", {
+    style: {
+      borderCollapse: "collapse",
+      width: "100%",
+      minWidth: 640,
+      fontSize: 12
+    }
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", {
+    style: {
+      background: "#F0F1EC",
+      position: "sticky",
+      top: 0,
+      zIndex: 1
+    }
+  }, ["#", "流程名稱", "負責單位", "產出文件", "相依前置", ""].map((h, i) => /*#__PURE__*/React.createElement("th", {
+    key: i,
+    className: "uppercase tracking-wide",
+    style: {
+      ...thStyle,
+      textAlign: i === 0 ? "center" : "left"
+    }
+  }, h)))), /*#__PURE__*/React.createElement("tbody", null, template.map((t, i) => {
+    const deps = (t.dependsOn || []).map(id => template.find(x => x.id === id)).filter(Boolean);
+    return /*#__PURE__*/React.createElement("tr", {
+      key: t.id,
+      style: {
+        background: i % 2 ? "#fff" : "#FAFAF8",
+        borderTop: "1px solid #E3E4E0"
+      }
+    }, /*#__PURE__*/React.createElement("td", {
+      style: {
+        ...tdStyle,
+        textAlign: "center"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "flex items-center justify-center gap-1"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "mono",
+      style: {
+        fontSize: 12,
+        color: "#8A9099",
+        minWidth: 14,
+        textAlign: "right"
+      }
+    }, i + 1), /*#__PURE__*/React.createElement("div", {
+      className: "flex flex-col"
+    }, /*#__PURE__*/React.createElement("button", {
+      onClick: () => onReorder(t.id, -1),
+      disabled: i === 0,
+      style: {
+        color: i === 0 ? "#E3E4E0" : "#8A9099",
+        lineHeight: 0
+      }
+    }, /*#__PURE__*/React.createElement(ChevronUp, {
+      size: 11
+    })), /*#__PURE__*/React.createElement("button", {
+      onClick: () => onReorder(t.id, 1),
+      disabled: i === template.length - 1,
+      style: {
+        color: i === template.length - 1 ? "#E3E4E0" : "#8A9099",
+        lineHeight: 0
+      }
+    }, /*#__PURE__*/React.createElement(ChevronDown, {
+      size: 11
+    }))))), /*#__PURE__*/React.createElement("td", {
+      style: {
+        ...tdStyle,
+        minWidth: 160
+      }
+    }, /*#__PURE__*/React.createElement("input", {
+      value: t.name,
+      placeholder: "流程名稱",
+      onChange: e => onUpdate(t.id, "name", e.target.value),
+      style: cellInput
+    })), /*#__PURE__*/React.createElement("td", {
+      style: {
+        ...tdStyle,
+        minWidth: 100
+      }
+    }, /*#__PURE__*/React.createElement("input", {
+      value: t.unit,
+      placeholder: "負責單位",
+      onChange: e => onUpdate(t.id, "unit", e.target.value),
+      style: cellInput
+    })), /*#__PURE__*/React.createElement("td", {
+      style: {
+        ...tdStyle,
+        minWidth: 160
+      }
+    }, /*#__PURE__*/React.createElement("input", {
+      value: t.form,
+      placeholder: "產出文件",
+      onChange: e => onUpdate(t.id, "form", e.target.value),
+      style: cellInput
+    })), /*#__PURE__*/React.createElement("td", {
+      style: {
+        ...tdStyle,
+        minWidth: 100
+      }
+    }, /*#__PURE__*/React.createElement("button", {
+      onClick: () => setDepModalId(t.id),
+      className: "flex items-center gap-1 px-2 py-1",
+      style: {
+        fontSize: 11,
+        border: "1px dashed #D9DBD5",
+        borderRadius: 6,
+        color: deps.length ? "#1B2430" : "#8A9099",
+        width: "100%"
+      }
+    }, /*#__PURE__*/React.createElement(Link2, {
+      size: 11
+    }), " ", deps.length ? `${deps.length} 項` : "設定")), /*#__PURE__*/React.createElement("td", {
+      style: {
+        ...tdStyle,
+        textAlign: "center"
+      }
+    }, /*#__PURE__*/React.createElement("button", {
+      onClick: () => onDelete(t.id),
+      style: {
+        color: "#B4B7AF"
+      }
+    }, /*#__PURE__*/React.createElement(Trash2, {
+      size: 14
+    }))));
+  })))), depModalItem && /*#__PURE__*/React.createElement(DependencyModal, {
+    stage: depModalItem,
+    allStages: template,
+    onToggle: targetId => toggleDep(depModalItem.id, targetId),
+    onClose: () => setDepModalId(null)
+  }));
+}
 function ProcessPanel({
   stages,
   onAdd,
