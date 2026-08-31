@@ -295,6 +295,13 @@ function NPITracker({
   const [selectedId, setSelectedId] = useState(null);
   const [samples, setSamples] = useState([]);
   const [stages, setStages] = useState([]);
+  const [pricing, setPricing] = useState({
+    materialCost: "",
+    factoryCost: "",
+    exchangeRate: "",
+    targetPrice: "",
+    quotes: []
+  });
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("process");
   const [showProductForm, setShowProductForm] = useState(false);
@@ -354,13 +361,28 @@ function NPITracker({
     if (!selectedId) {
       setSamples([]);
       setStages([]);
+      setPricing({
+        materialCost: "",
+        factoryCost: "",
+        exchangeRate: "",
+        targetPrice: "",
+        quotes: []
+      });
       return;
     }
     (async () => {
       const s = await storageGet(`samples:${selectedId}`);
       const p = await storageGet(`stages:${selectedId}`);
+      const pr = await storageGet(`pricing:${selectedId}`);
       setSamples(s || []);
       setStages(p || []);
+      setPricing(pr || {
+        materialCost: "",
+        factoryCost: "",
+        exchangeRate: "",
+        targetPrice: "",
+        quotes: []
+      });
     })();
   }, [selectedId]);
   const selectedProduct = products.find(p => p.id === selectedId) || null;
@@ -407,6 +429,46 @@ function NPITracker({
     setSamples(list);
     const ok = await storageSet(`samples:${selectedId}`, list);
     if (!ok) setSaveError("送樣資料儲存失敗，請重試");
+  };
+  const persistPricing = async next => {
+    setPricing(next);
+    const ok = await storageSet(`pricing:${selectedId}`, next);
+    if (!ok) setSaveError("價格推廣資料儲存失敗，請重試");
+  };
+  const updatePricingField = (field, value) => {
+    persistPricing({
+      ...pricing,
+      [field]: value
+    });
+  };
+  const addQuote = () => {
+    persistPricing({
+      ...pricing,
+      quotes: [...(pricing.quotes || []), {
+        id: uid(),
+        customerName: "",
+        quantity: "",
+        quotedPrice: "",
+        status: "洽談中",
+        date: "",
+        note: ""
+      }]
+    });
+  };
+  const updateQuote = (id, field, value) => {
+    persistPricing({
+      ...pricing,
+      quotes: (pricing.quotes || []).map(q => q.id === id ? {
+        ...q,
+        [field]: value
+      } : q)
+    });
+  };
+  const deleteQuote = id => {
+    persistPricing({
+      ...pricing,
+      quotes: (pricing.quotes || []).filter(q => q.id !== id)
+    });
   };
   const persistStages = async list => {
     setStages(list);
@@ -950,6 +1012,9 @@ function NPITracker({
     k: "samples",
     label: "產品送樣資訊"
   }, {
+    k: "pricing",
+    label: "業務價格推廣"
+  }, {
     k: "template",
     label: "預設流程範本"
   }].map(t => /*#__PURE__*/React.createElement("button", {
@@ -979,6 +1044,12 @@ function NPITracker({
     onEditNote: editStageNote,
     onDeleteNote: deleteStageNote,
     pct: pct
+  }), tab === "pricing" && /*#__PURE__*/React.createElement(PricingPanel, {
+    pricing: pricing,
+    onUpdateField: updatePricingField,
+    onAddQuote: addQuote,
+    onUpdateQuote: updateQuote,
+    onDeleteQuote: deleteQuote
   }), tab === "template" && /*#__PURE__*/React.createElement(TemplateEditor, {
     template: template,
     onAdd: addTemplateItem,
@@ -1042,7 +1113,32 @@ function DashboardView({
   stats,
   onSelect
 }) {
+  const [viewMode, setViewMode] = useState("product"); // "product" | "stage"
   const overallDelayed = products.filter(p => stats[p.id]?.delayed).length;
+
+  // group products by their current stage name (exact text match — see note in UI below)
+  const stageGroups = useMemo(() => {
+    const map = new Map();
+    products.forEach(p => {
+      const st = stats[p.id];
+      const key = !st || st.total === 0 ? "尚未建立流程" : st.currentStageName || "已全部完成";
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(p);
+    });
+    const entries = [...map.entries()];
+    const pinnedLast = ["已全部完成", "尚未建立流程"];
+    entries.sort((a, b) => {
+      const aPinned = pinnedLast.indexOf(a[0]);
+      const bPinned = pinnedLast.indexOf(b[0]);
+      if (aPinned !== -1 || bPinned !== -1) {
+        if (aPinned === -1) return -1;
+        if (bPinned === -1) return 1;
+        return aPinned - bPinned;
+      }
+      return b[1].length - a[1].length; // busiest stage first
+    });
+    return entries;
+  }, [products, stats]);
   return /*#__PURE__*/React.createElement("div", {
     className: "p-6"
   }, /*#__PURE__*/React.createElement("div", {
@@ -1052,7 +1148,30 @@ function DashboardView({
     style: {
       fontSize: 20
     }
-  }, "總覽儀表板")), /*#__PURE__*/React.createElement("div", {
+  }, "總覽儀表板"), /*#__PURE__*/React.createElement("div", {
+    className: "flex",
+    style: {
+      border: "1px solid #D9DBD5",
+      borderRadius: 6,
+      overflow: "hidden"
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => setViewMode("product"),
+    className: "px-3 py-1.5",
+    style: {
+      fontSize: 12,
+      color: viewMode === "product" ? "#fff" : "#5B6169",
+      background: viewMode === "product" ? "#1B2430" : "#fff"
+    }
+  }, "依產品"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setViewMode("stage"),
+    className: "px-3 py-1.5",
+    style: {
+      fontSize: 12,
+      color: viewMode === "stage" ? "#fff" : "#5B6169",
+      background: viewMode === "stage" ? "#1B2430" : "#fff"
+    }
+  }, "依階段"))), /*#__PURE__*/React.createElement("div", {
     className: "mono mb-5",
     style: {
       fontSize: 12,
@@ -1062,7 +1181,71 @@ function DashboardView({
     style: {
       color: "#C1443C"
     }
-  }, " · ", overallDelayed, " 個有流程落後")), /*#__PURE__*/React.createElement("div", {
+  }, " · ", overallDelayed, " 個有流程落後")), viewMode === "stage" ? /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "mb-3",
+    style: {
+      fontSize: 11,
+      color: "#8A9099"
+    }
+  }, "依「目前階段」分組——只有流程名稱完全一樣的產品才會歸在同一組，如果不同產品的階段名稱寫法不一致（例如一個叫「功能測試」、一個叫「功能檢測」），會被當成不同組，不會自動合併。"), /*#__PURE__*/React.createElement("div", {
+    className: "space-y-3"
+  }, stageGroups.map(([stageName, list]) => /*#__PURE__*/React.createElement("div", {
+    key: stageName,
+    style: {
+      border: "1px solid #E3E4E0",
+      borderRadius: 10,
+      background: "#fff",
+      padding: 14
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-2 mb-3"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 14,
+      fontWeight: 700,
+      color: "#1B2430"
+    }
+  }, stageName), /*#__PURE__*/React.createElement("div", {
+    className: "mono",
+    style: {
+      fontSize: 11,
+      color: "#8A9099"
+    }
+  }, list.length, " 個產品")), /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-wrap gap-2"
+  }, list.map(p => /*#__PURE__*/React.createElement("button", {
+    key: p.id,
+    onClick: () => onSelect(p.id),
+    className: "flex items-center gap-2 pl-1.5 pr-3 py-1.5",
+    style: {
+      border: "1px solid #E3E4E0",
+      borderRadius: 999,
+      background: stats[p.id]?.delayed ? "#FFF9F8" : "#FAFAF8"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-center rounded-full shrink-0 overflow-hidden",
+    style: {
+      width: 24,
+      height: 24,
+      background: "#F0F1EC"
+    }
+  }, p.photo ? /*#__PURE__*/React.createElement("img", {
+    src: p.photo,
+    alt: "",
+    className: "w-full h-full object-cover"
+  }) : /*#__PURE__*/React.createElement(Package, {
+    size: 11,
+    color: "#B4B7AF"
+  })), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12,
+      fontWeight: 600,
+      color: "#1B2430"
+    }
+  }, p.name || "未命名產品"), stats[p.id]?.delayed && /*#__PURE__*/React.createElement(AlertTriangle, {
+    size: 11,
+    color: "#C1443C"
+  })))))))) : /*#__PURE__*/React.createElement("div", {
     style: {
       border: "1px solid #E3E4E0",
       borderRadius: 10,
@@ -1611,6 +1794,398 @@ function LabeledInput({
       outline: "none"
     }
   }));
+}
+function marginColor(pct) {
+  if (pct === null) return "#8A9099";
+  if (pct < 0) return "#C1443C";
+  if (pct < 20) return "#C1443C"; // thin margin — same red as loss, deliberately: <20% is treated as a warning zone too
+  return "#2F6F6B";
+}
+const STATUS_STYLE = {
+  洽談中: {
+    color: "#8A9099",
+    bg: "#F0F1EC",
+    border: "#D9DBD5"
+  },
+  已成交: {
+    color: "#2F6F6B",
+    bg: "#EAF3F2",
+    border: "#2F6F6B"
+  },
+  未成交: {
+    color: "#C1443C",
+    bg: "#FBEDEC",
+    border: "#C1443C"
+  }
+};
+function PricingPanel({
+  pricing,
+  onUpdateField,
+  onAddQuote,
+  onUpdateQuote,
+  onDeleteQuote
+}) {
+  const materialCost = parseFloat(pricing.materialCost);
+  const factoryCost = parseFloat(pricing.factoryCost);
+  const exchangeRate = parseFloat(pricing.exchangeRate);
+  const price = parseFloat(pricing.targetPrice); // 美金報價
+
+  const hasMaterial = !isNaN(materialCost);
+  const hasFactory = !isNaN(factoryCost);
+  const hasAnyCostInput = hasMaterial || hasFactory;
+  const totalCostTWD = (hasMaterial ? materialCost : 0) + (hasFactory ? factoryCost : 0);
+  const hasRate = !isNaN(exchangeRate) && exchangeRate > 0;
+  const totalCostUSD = hasAnyCostInput && hasRate ? totalCostTWD / exchangeRate : null;
+  const hasPrice = !isNaN(price) && price > 0;
+  const marginPct = totalCostUSD !== null && hasPrice ? (price - totalCostUSD) / price * 100 : null;
+  const quotes = pricing.quotes || [];
+  const totalCustomers = quotes.length;
+  const acceptedCount = quotes.filter(q => q.status === "已成交").length;
+  const rejectedCount = quotes.filter(q => q.status === "未成交").length;
+  const pendingCount = quotes.filter(q => q.status === "洽談中").length;
+  const cols = "1.2fr 90px 1fr 100px 1.1fr 1.3fr 28px";
+  const readonlyBox = {
+    ...cellInput,
+    width: 130,
+    fontSize: 15,
+    padding: "6px 8px",
+    background: "#F0F1EC",
+    color: "#5B6169"
+  };
+  const editBox = {
+    ...cellInput,
+    width: 130,
+    fontSize: 15,
+    padding: "6px 8px"
+  };
+  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "mb-5"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "mb-3",
+    style: {
+      fontSize: 14,
+      fontWeight: 600
+    }
+  }, "價格總覽"), /*#__PURE__*/React.createElement("div", {
+    className: "mb-1",
+    style: {
+      fontSize: 10,
+      color: "#8A9099",
+      textTransform: "uppercase",
+      letterSpacing: 0.3
+    }
+  }, "成本（新台幣）"), /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-wrap items-end mb-4",
+    style: {
+      gap: 28
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    className: "block"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "mb-1",
+    style: {
+      fontSize: 11,
+      color: "#8A9099"
+    }
+  }, "由料錢"), /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    value: pricing.materialCost,
+    placeholder: "0",
+    onChange: e => onUpdateField("materialCost", e.target.value),
+    style: editBox,
+    className: "mono"
+  })), /*#__PURE__*/React.createElement("label", {
+    className: "block"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "mb-1",
+    style: {
+      fontSize: 11,
+      color: "#8A9099"
+    }
+  }, "廠內成本"), /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    value: pricing.factoryCost,
+    placeholder: "0",
+    onChange: e => onUpdateField("factoryCost", e.target.value),
+    style: editBox,
+    className: "mono"
+  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "mb-1",
+    style: {
+      fontSize: 11,
+      color: "#8A9099"
+    }
+  }, "總成本（台幣，自動加總）"), /*#__PURE__*/React.createElement("div", {
+    className: "mono",
+    style: readonlyBox
+  }, hasAnyCostInput ? totalCostTWD.toLocaleString(undefined, {
+    maximumFractionDigits: 0
+  }) : "—"))), /*#__PURE__*/React.createElement("div", {
+    className: "mb-1",
+    style: {
+      fontSize: 10,
+      color: "#8A9099",
+      textTransform: "uppercase",
+      letterSpacing: 0.3
+    }
+  }, "換算與毛利（美金）"), /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-wrap items-end",
+    style: {
+      gap: 28
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    className: "block"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "mb-1",
+    style: {
+      fontSize: 11,
+      color: "#8A9099"
+    }
+  }, "匯率（USD/TWD）"), /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    step: "0.01",
+    value: pricing.exchangeRate,
+    placeholder: "例如 31.5",
+    onChange: e => onUpdateField("exchangeRate", e.target.value),
+    style: editBox,
+    className: "mono"
+  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "mb-1",
+    style: {
+      fontSize: 11,
+      color: "#8A9099"
+    }
+  }, "總成本（美金，自動換算）"), /*#__PURE__*/React.createElement("div", {
+    className: "mono",
+    style: readonlyBox
+  }, totalCostUSD !== null ? `$${totalCostUSD.toFixed(2)}` : "—")), /*#__PURE__*/React.createElement("label", {
+    className: "block"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "mb-1",
+    style: {
+      fontSize: 11,
+      color: "#8A9099"
+    }
+  }, "定價（美金）"), /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    value: pricing.targetPrice,
+    placeholder: "0",
+    onChange: e => onUpdateField("targetPrice", e.target.value),
+    style: editBox,
+    className: "mono"
+  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "mb-1",
+    style: {
+      fontSize: 11,
+      color: "#8A9099"
+    }
+  }, "毛利率（自動計算，以定價為基準）"), /*#__PURE__*/React.createElement("div", {
+    className: "mono",
+    style: {
+      fontSize: 22,
+      fontWeight: 700,
+      color: marginColor(marginPct)
+    }
+  }, marginPct === null ? "—" : `${marginPct.toFixed(1)}%`)), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "mb-1",
+    style: {
+      fontSize: 11,
+      color: "#8A9099"
+    }
+  }, "報價紀錄總覽"), /*#__PURE__*/React.createElement("div", {
+    className: "mono",
+    style: {
+      fontSize: 22,
+      fontWeight: 700,
+      color: "#1B2430"
+    }
+  }, totalCustomers, " ", /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12,
+      fontWeight: 400,
+      color: "#8A9099"
+    }
+  }, "位客戶")), /*#__PURE__*/React.createElement("div", {
+    className: "mono mt-0.5",
+    style: {
+      fontSize: 11
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "#2F6F6B"
+    }
+  }, "已成交 ", acceptedCount), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "#8A9099"
+    }
+  }, " · "), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "#C1443C"
+    }
+  }, "未成交 ", rejectedCount), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "#8A9099"
+    }
+  }, " · "), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "#8A9099"
+    }
+  }, "洽談中 ", pendingCount)))), !hasRate && hasAnyCostInput && /*#__PURE__*/React.createElement("div", {
+    className: "mt-2",
+    style: {
+      fontSize: 11,
+      color: "#8A9099"
+    }
+  }, "填上「匯率」後，才能換算出美金成本跟毛利率。")), /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-between mb-3"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 14,
+      fontWeight: 600
+    }
+  }, "客戶報價紀錄"), /*#__PURE__*/React.createElement("button", {
+    onClick: onAddQuote,
+    className: "flex items-center gap-1 px-3 py-1.5",
+    style: {
+      fontSize: 12,
+      color: "#fff",
+      background: "#1B2430",
+      borderRadius: 6
+    }
+  }, /*#__PURE__*/React.createElement(Plus, {
+    size: 13
+  }), " 新增報價")), quotes.length === 0 ? /*#__PURE__*/React.createElement(EmptyState, {
+    text: "尚無客戶報價紀錄，點「新增報價」開始記錄。"
+  }) : /*#__PURE__*/React.createElement("div", {
+    style: {
+      border: "1px solid #E3E4E0",
+      borderRadius: 8,
+      overflow: "auto",
+      maxWidth: "100%"
+    }
+  }, /*#__PURE__*/React.createElement("table", {
+    style: {
+      borderCollapse: "collapse",
+      width: "100%",
+      minWidth: 860,
+      fontSize: 12
+    }
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", {
+    style: {
+      background: "#F0F1EC"
+    }
+  }, ["客戶名稱", "數量", "客戶報價", "該筆毛利率", "是否成交", "備註", ""].map((h, i) => /*#__PURE__*/React.createElement("th", {
+    key: i,
+    className: "uppercase tracking-wide",
+    style: {
+      ...thStyle,
+      textAlign: "left"
+    }
+  }, h)))), /*#__PURE__*/React.createElement("tbody", null, quotes.map((q, i) => {
+    const qPrice = parseFloat(q.quotedPrice);
+    const rowMargin = totalCostUSD !== null && !isNaN(qPrice) && qPrice > 0 ? (qPrice - totalCostUSD) / qPrice * 100 : null;
+    const st = STATUS_STYLE[q.status] || STATUS_STYLE["洽談中"];
+    return /*#__PURE__*/React.createElement("tr", {
+      key: q.id,
+      style: {
+        background: i % 2 ? "#fff" : "#FAFAF8",
+        borderTop: "1px solid #E3E4E0"
+      }
+    }, /*#__PURE__*/React.createElement("td", {
+      style: {
+        ...tdStyle,
+        minWidth: 120
+      }
+    }, /*#__PURE__*/React.createElement("input", {
+      value: q.customerName,
+      placeholder: "客戶名稱",
+      onChange: e => onUpdateQuote(q.id, "customerName", e.target.value),
+      style: cellInput
+    })), /*#__PURE__*/React.createElement("td", {
+      style: {
+        ...tdStyle,
+        minWidth: 70
+      }
+    }, /*#__PURE__*/React.createElement("input", {
+      type: "number",
+      value: q.quantity,
+      placeholder: "0",
+      onChange: e => onUpdateQuote(q.id, "quantity", e.target.value),
+      className: "mono",
+      style: cellInput
+    })), /*#__PURE__*/React.createElement("td", {
+      style: {
+        ...tdStyle,
+        minWidth: 90
+      }
+    }, /*#__PURE__*/React.createElement("input", {
+      type: "number",
+      value: q.quotedPrice,
+      placeholder: "0",
+      onChange: e => onUpdateQuote(q.id, "quotedPrice", e.target.value),
+      className: "mono",
+      style: cellInput
+    })), /*#__PURE__*/React.createElement("td", {
+      style: {
+        ...tdStyle,
+        minWidth: 90
+      },
+      className: "mono"
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: marginColor(rowMargin),
+        fontWeight: 600
+      }
+    }, rowMargin === null ? "—" : `${rowMargin.toFixed(1)}%`)), /*#__PURE__*/React.createElement("td", {
+      style: {
+        ...tdStyle,
+        minWidth: 100
+      }
+    }, /*#__PURE__*/React.createElement("select", {
+      value: q.status,
+      onChange: e => onUpdateQuote(q.id, "status", e.target.value),
+      style: {
+        ...cellInput,
+        color: st.color,
+        borderColor: st.border,
+        background: st.bg
+      }
+    }, /*#__PURE__*/React.createElement("option", {
+      value: "洽談中"
+    }, "洽談中"), /*#__PURE__*/React.createElement("option", {
+      value: "已成交"
+    }, "已成交"), /*#__PURE__*/React.createElement("option", {
+      value: "未成交"
+    }, "未成交"))), /*#__PURE__*/React.createElement("td", {
+      style: {
+        ...tdStyle,
+        minWidth: 120
+      }
+    }, /*#__PURE__*/React.createElement("input", {
+      value: q.note,
+      placeholder: "備註",
+      onChange: e => onUpdateQuote(q.id, "note", e.target.value),
+      style: cellInput
+    })), /*#__PURE__*/React.createElement("td", {
+      style: {
+        ...tdStyle,
+        textAlign: "center"
+      }
+    }, /*#__PURE__*/React.createElement("button", {
+      onClick: () => onDeleteQuote(q.id),
+      style: {
+        color: "#B4B7AF"
+      }
+    }, /*#__PURE__*/React.createElement(Trash2, {
+      size: 14
+    }))));
+  })))), totalCostUSD === null && quotes.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "mt-2",
+    style: {
+      fontSize: 11,
+      color: "#8A9099"
+    }
+  }, "填上方「產品成本」後，這裡會自動算出每筆報價的實際毛利率。"));
 }
 function SamplesPanel({
   samples,
