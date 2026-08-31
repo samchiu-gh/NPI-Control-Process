@@ -2506,6 +2506,26 @@ function ProcessPanel({
   const depModalStage = stages.find(s => s.id === depModalId) || null;
   const dateModalStage = stages.find(s => s.id === dateModalId) || null;
   const noteModalStage = stages.find(s => s.id === noteModalId) || null;
+
+  // larger text just for this table — scoped locally so it doesn't affect the
+  // samples / template / pricing tables, which weren't asked to change.
+  const pThStyle = {
+    padding: "9px 10px",
+    fontSize: 12,
+    color: "#8A9099",
+    whiteSpace: "nowrap"
+  };
+  const pTdStyle = {
+    padding: "9px 8px",
+    verticalAlign: "middle"
+  };
+  const pCellInput = {
+    border: "1px solid #D9DBD5",
+    borderRadius: 5,
+    padding: "6px 8px",
+    fontSize: 14,
+    width: "100%"
+  };
   const toggleDep = (stageId, targetId) => {
     const stage = stages.find(s => s.id === stageId);
     const cur = stage.dependsOn || [];
@@ -2543,8 +2563,8 @@ function ProcessPanel({
     style: {
       borderCollapse: "collapse",
       width: "100%",
-      minWidth: 960,
-      fontSize: 12
+      minWidth: 1080,
+      fontSize: 14
     }
   }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", {
     style: {
@@ -2557,7 +2577,7 @@ function ProcessPanel({
     key: i,
     className: "uppercase tracking-wide",
     style: {
-      ...thStyle,
+      ...pThStyle,
       textAlign: i <= 1 ? "center" : "left"
     }
   }, h)))), /*#__PURE__*/React.createElement("tbody", null, stages.map((s, i) => {
@@ -2578,7 +2598,7 @@ function ProcessPanel({
       }
     }, /*#__PURE__*/React.createElement("td", {
       style: {
-        ...tdStyle,
+        ...pTdStyle,
         textAlign: "center"
       }
     }, /*#__PURE__*/React.createElement("div", {
@@ -2586,9 +2606,9 @@ function ProcessPanel({
     }, /*#__PURE__*/React.createElement("span", {
       className: "mono",
       style: {
-        fontSize: 12,
+        fontSize: 14,
         color: "#8A9099",
-        minWidth: 14,
+        minWidth: 16,
         textAlign: "right"
       }
     }, i + 1), /*#__PURE__*/React.createElement("div", {
@@ -2601,7 +2621,7 @@ function ProcessPanel({
         lineHeight: 0
       }
     }, /*#__PURE__*/React.createElement(ChevronUp, {
-      size: 11
+      size: 13
     })), /*#__PURE__*/React.createElement("button", {
       onClick: () => onReorder(s.id, 1),
       disabled: i === stages.length - 1,
@@ -2610,10 +2630,10 @@ function ProcessPanel({
         lineHeight: 0
       }
     }, /*#__PURE__*/React.createElement(ChevronDown, {
-      size: 11
+      size: 13
     }))))), /*#__PURE__*/React.createElement("td", {
       style: {
-        ...tdStyle,
+        ...pTdStyle,
         textAlign: "center"
       }
     }, /*#__PURE__*/React.createElement("input", {
@@ -2621,80 +2641,80 @@ function ProcessPanel({
       checked: !!s.completed,
       onChange: () => onUpdate(s.id, "completed", !s.completed),
       style: {
-        width: 15,
-        height: 15
+        width: 17,
+        height: 17
       }
     })), /*#__PURE__*/React.createElement("td", {
       style: {
-        ...tdStyle,
-        minWidth: 130
+        ...pTdStyle,
+        minWidth: 150
       }
     }, /*#__PURE__*/React.createElement("input", {
       value: s.name,
       placeholder: "流程名稱",
       onChange: e => onUpdate(s.id, "name", e.target.value),
       style: {
-        ...cellInput,
+        ...pCellInput,
         textDecoration: s.completed ? "line-through" : "none"
       }
     })), /*#__PURE__*/React.createElement("td", {
       style: {
-        ...tdStyle,
-        minWidth: 90
+        ...pTdStyle,
+        minWidth: 100
       }
     }, /*#__PURE__*/React.createElement("input", {
       value: s.unit,
       placeholder: "負責單位",
       onChange: e => onUpdate(s.id, "unit", e.target.value),
-      style: cellInput
+      style: pCellInput
     })), /*#__PURE__*/React.createElement("td", {
       style: {
-        ...tdStyle,
-        minWidth: 160
+        ...pTdStyle,
+        minWidth: 180
       }
     }, /*#__PURE__*/React.createElement("input", {
       value: s.content,
       placeholder: "工作內容",
       onChange: e => onUpdate(s.id, "content", e.target.value),
-      style: cellInput
+      style: pCellInput
     })), /*#__PURE__*/React.createElement("td", {
       style: {
-        ...tdStyle,
-        minWidth: 120
+        ...pTdStyle,
+        minWidth: 140
       }
     }, /*#__PURE__*/React.createElement("input", {
       value: s.form,
       placeholder: "產出文件",
       onChange: e => onUpdate(s.id, "form", e.target.value),
-      style: cellInput
+      style: pCellInput
     })), /*#__PURE__*/React.createElement("td", {
       style: {
-        ...tdStyle,
-        minWidth: 90
+        ...pTdStyle,
+        minWidth: 100
       }
     }, /*#__PURE__*/React.createElement("button", {
       onClick: () => setDepModalId(s.id),
-      className: "flex items-center gap-1 px-2 py-1",
+      className: "flex items-center gap-1 px-2 py-1.5",
       style: {
-        fontSize: 11,
+        fontSize: 13,
         border: "1px dashed #D9DBD5",
         borderRadius: 6,
         color: deps.length ? "#1B2430" : "#8A9099",
         width: "100%"
       }
     }, /*#__PURE__*/React.createElement(Link2, {
-      size: 11
+      size: 13
     }), " ", deps.length ? `${deps.length} 項` : "設定")), /*#__PURE__*/React.createElement("td", {
       style: {
-        ...tdStyle,
-        minWidth: 130
+        ...pTdStyle,
+        minWidth: 150
       }
     }, /*#__PURE__*/React.createElement("button", {
       onClick: () => setDateModalId(s.id),
       className: "w-full",
       style: {
         textAlign: "left",
-        padding: "4px 8px",
+        padding: "6px 8px",
         border: `1px solid ${conflict ? "#C1443C" : "#D9DBD5"}`,
         borderRadius: 6,
         background: conflict ? "#FFF9F8" : "#fff"
@@ -2702,42 +2722,42 @@ function ProcessPanel({
     }, hasAnyDate ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
       className: "mono",
       style: {
-        fontSize: 10,
+        fontSize: 12,
         color: "#8A9099"
       }
     }, "預 ", shortDate(s.plannedStart), "–", shortDate(s.plannedEnd)), /*#__PURE__*/React.createElement("div", {
       className: "mono flex items-center gap-1",
       style: {
-        fontSize: 10,
+        fontSize: 12,
         color: endDiff > 0 ? "#C1443C" : endDiff < 0 ? "#2F6F6B" : "#5B6169"
       }
     }, "實 ", shortDate(s.actualStart), "–", shortDate(s.actualEnd), endDiff !== null && (endDiff > 0 ? ` +${endDiff}` : endDiff < 0 ? ` ${endDiff}` : " ✓"))) : /*#__PURE__*/React.createElement("div", {
       className: "flex items-center gap-1",
       style: {
-        fontSize: 11,
+        fontSize: 13,
         color: "#8A9099"
       }
     }, /*#__PURE__*/React.createElement(CalendarDays, {
-      size: 11
+      size: 13
     }), " 設定時程"), (conflict || delay > 0) && /*#__PURE__*/React.createElement("div", {
       className: "flex items-center gap-1",
       style: {
-        fontSize: 10,
+        fontSize: 12,
         color: "#C1443C"
       }
     }, /*#__PURE__*/React.createElement(AlertTriangle, {
-      size: 10
+      size: 12
     }), " ", conflict ? "時程衝突" : `預估延後${delay}天`))), /*#__PURE__*/React.createElement("td", {
       style: {
-        ...tdStyle,
-        minWidth: 110
+        ...pTdStyle,
+        minWidth: 130
       }
     }, /*#__PURE__*/React.createElement("button", {
       onClick: () => setNoteModalId(s.id),
       className: "w-full",
       style: {
         textAlign: "left",
-        padding: "4px 8px",
+        padding: "6px 8px",
         border: "1px dashed #D9DBD5",
         borderRadius: 6,
         background: "#fff"
@@ -2745,28 +2765,28 @@ function ProcessPanel({
     }, (s.notes || []).length > 0 ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
       className: "flex items-center gap-1",
       style: {
-        fontSize: 11,
+        fontSize: 13,
         color: "#1B2430"
       }
     }, /*#__PURE__*/React.createElement(MessageSquare, {
-      size: 11
+      size: 13
     }), " ", s.notes.length, " 則"), /*#__PURE__*/React.createElement("div", {
       className: "truncate",
       style: {
-        fontSize: 10,
+        fontSize: 12,
         color: "#8A9099"
       }
     }, s.notes[s.notes.length - 1].text)) : /*#__PURE__*/React.createElement("div", {
       className: "flex items-center gap-1",
       style: {
-        fontSize: 11,
+        fontSize: 13,
         color: "#8A9099"
       }
     }, /*#__PURE__*/React.createElement(MessageSquare, {
-      size: 11
+      size: 13
     }), " 新增備註"))), /*#__PURE__*/React.createElement("td", {
       style: {
-        ...tdStyle,
+        ...pTdStyle,
         textAlign: "center"
       }
     }, /*#__PURE__*/React.createElement("button", {
@@ -2775,7 +2795,7 @@ function ProcessPanel({
         color: "#B4B7AF"
       }
     }, /*#__PURE__*/React.createElement(Trash2, {
-      size: 14
+      size: 16
     }))));
   })))), depModalStage && /*#__PURE__*/React.createElement(DependencyModal, {
     stage: depModalStage,
