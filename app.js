@@ -3164,10 +3164,8 @@ function ProcessPanel({
   pct
 }) {
   const [depModalId, setDepModalId] = useState(null);
-  const [dateModalId, setDateModalId] = useState(null);
   const [noteModalId, setNoteModalId] = useState(null);
   const depModalStage = stages.find(s => s.id === depModalId) || null;
-  const dateModalStage = stages.find(s => s.id === dateModalId) || null;
   const noteModalStage = stages.find(s => s.id === noteModalId) || null;
 
   // larger text just for this table — scoped locally so it doesn't affect the
@@ -3226,7 +3224,7 @@ function ProcessPanel({
     style: {
       borderCollapse: "collapse",
       width: "100%",
-      minWidth: 1080,
+      minWidth: 930,
       fontSize: 14
     }
   }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", {
@@ -3236,7 +3234,7 @@ function ProcessPanel({
       top: 0,
       zIndex: 1
     }
-  }, ["#", "完成", "流程名稱", "負責單位", "工作內容", "產出文件", "相依前置", "時程", "備註", ""].map((h, i) => /*#__PURE__*/React.createElement("th", {
+  }, ["#", "完成", "流程名稱", "負責單位", "工作內容", "產出文件", "相依前置", "備註", ""].map((h, i) => /*#__PURE__*/React.createElement("th", {
     key: i,
     className: "uppercase tracking-wide",
     style: {
@@ -3245,12 +3243,7 @@ function ProcessPanel({
     }
   }, h)))), /*#__PURE__*/React.createElement("tbody", null, stages.map((s, i) => {
     const deps = (s.dependsOn || []).map(id => stages.find(x => x.id === id)).filter(Boolean);
-    const early = earliestAllowedStart(s, stages);
-    const conflict = early && early.date && s.plannedStart && toDate(s.plannedStart) < toDate(early.date);
-    const endDiff = daysDiff(s.plannedEnd, s.actualEnd);
-    const delay = forecastDelay(s.id, stages, {});
     const rowBg = i % 2 ? "#fff" : "#FAFAF8";
-    const hasAnyDate = s.plannedStart || s.plannedEnd || s.actualStart || s.actualEnd;
     return /*#__PURE__*/React.createElement("tr", {
       key: s.id,
       style: {
@@ -3370,49 +3363,6 @@ function ProcessPanel({
     }), " ", deps.length ? `${deps.length} 項` : "設定")), /*#__PURE__*/React.createElement("td", {
       style: {
         ...pTdStyle,
-        minWidth: 150
-      }
-    }, /*#__PURE__*/React.createElement("button", {
-      onClick: () => setDateModalId(s.id),
-      className: "w-full",
-      style: {
-        textAlign: "left",
-        padding: "6px 8px",
-        border: `1px solid ${conflict ? "#C1443C" : "#D9DBD5"}`,
-        borderRadius: 6,
-        background: conflict ? "#FFF9F8" : "#fff"
-      }
-    }, hasAnyDate ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
-      className: "mono",
-      style: {
-        fontSize: 12,
-        color: "#8A9099"
-      }
-    }, "預 ", shortDate(s.plannedStart), "–", shortDate(s.plannedEnd)), /*#__PURE__*/React.createElement("div", {
-      className: "mono flex items-center gap-1",
-      style: {
-        fontSize: 12,
-        color: endDiff > 0 ? "#C1443C" : endDiff < 0 ? "#2F6F6B" : "#5B6169"
-      }
-    }, "實 ", shortDate(s.actualStart), "–", shortDate(s.actualEnd), endDiff !== null && (endDiff > 0 ? ` +${endDiff}` : endDiff < 0 ? ` ${endDiff}` : " ✓"))) : /*#__PURE__*/React.createElement("div", {
-      className: "flex items-center gap-1",
-      style: {
-        fontSize: 13,
-        color: "#8A9099"
-      }
-    }, /*#__PURE__*/React.createElement(CalendarDays, {
-      size: 13
-    }), " 設定時程"), (conflict || delay > 0) && /*#__PURE__*/React.createElement("div", {
-      className: "flex items-center gap-1",
-      style: {
-        fontSize: 12,
-        color: "#C1443C"
-      }
-    }, /*#__PURE__*/React.createElement(AlertTriangle, {
-      size: 12
-    }), " ", conflict ? "時程衝突" : `預估延後${delay}天`))), /*#__PURE__*/React.createElement("td", {
-      style: {
-        ...pTdStyle,
         minWidth: 130
       }
     }, /*#__PURE__*/React.createElement("button", {
@@ -3465,11 +3415,6 @@ function ProcessPanel({
     allStages: stages,
     onToggle: targetId => toggleDep(depModalStage.id, targetId),
     onClose: () => setDepModalId(null)
-  }), dateModalStage && /*#__PURE__*/React.createElement(DateModal, {
-    stage: dateModalStage,
-    allStages: stages,
-    onUpdate: onUpdate,
-    onClose: () => setDateModalId(null)
   }), noteModalStage && /*#__PURE__*/React.createElement(NotesModal, {
     stage: noteModalStage,
     onAdd: text => onAddNote(noteModalStage.id, text),
