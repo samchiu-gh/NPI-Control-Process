@@ -1040,7 +1040,7 @@ function NPITracker({
     },
     onSelectTodo: id => {
       setSelectedId(id);
-      setTab("todos");
+      setTab("process");
     }
   }) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     className: "p-5",
@@ -1124,9 +1124,6 @@ function NPITracker({
     k: "pricing",
     label: "業務價格推廣"
   }, {
-    k: "todos",
-    label: "待辦事項"
-  }, {
     k: "template",
     label: "預設流程範本"
   }].map(t => /*#__PURE__*/React.createElement("button", {
@@ -1146,7 +1143,7 @@ function NPITracker({
     onAdd: addSample,
     onUpdate: updateSample,
     onDelete: deleteSample
-  }), tab === "process" && /*#__PURE__*/React.createElement(ProcessPanel, {
+  }), tab === "process" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(ProcessPanel, {
     stages: stages,
     onAdd: addStage,
     onUpdate: updateStage,
@@ -1156,13 +1153,12 @@ function NPITracker({
     onEditNote: editStageNote,
     onDeleteNote: deleteStageNote,
     pct: pct
-  }), tab === "pricing" && /*#__PURE__*/React.createElement(PricingPanel, {
-    pricing: pricing,
-    onUpdateField: updatePricingField,
-    onAddQuote: addQuote,
-    onUpdateQuote: updateQuote,
-    onDeleteQuote: deleteQuote
-  }), tab === "todos" && /*#__PURE__*/React.createElement(TodoPanel, {
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "mt-6 pt-6",
+    style: {
+      borderTop: `1px solid ${C.border}`
+    }
+  }, /*#__PURE__*/React.createElement(TodoPanel, {
     todos: todos,
     onAdd: addTodo,
     onUpdate: updateTodo,
@@ -1170,6 +1166,12 @@ function NPITracker({
     onEditLog: editTodoLog,
     onDeleteLog: deleteTodoLog,
     onDelete: deleteTodo
+  }))), tab === "pricing" && /*#__PURE__*/React.createElement(PricingPanel, {
+    pricing: pricing,
+    onUpdateField: updatePricingField,
+    onAddQuote: addQuote,
+    onUpdateQuote: updateQuote,
+    onDeleteQuote: deleteQuote
   }), tab === "template" && /*#__PURE__*/React.createElement(TemplateEditor, {
     template: template,
     onAdd: addTemplateItem,
