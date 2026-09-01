@@ -4,18 +4,12 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/fireba
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
 import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 import { getStorage, ref, uploadBytesResumable, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-storage.js";
+import { firebaseConfig } from "./firebase-config.js";
 
 // ---------- Firebase setup ----------
-// Fill these in with the values from your Firebase project settings
-// (Project settings → General → Your apps → SDK setup and configuration).
-const firebaseConfig = {
-  apiKey: "AIzaSyCt7pRbjAmK7rFQiOPum1jF2sYzSrP-27g",
-  authDomain: "npi-control-process.firebaseapp.com",
-  projectId: "npi-control-process",
-  storageBucket: "npi-control-process.firebasestorage.app",
-  messagingSenderId: "426823566143",
-  appId: "1:426823566143:web:a70b2dd31cb82e0528098a"
-};
+// The actual config values live in firebase-config.js, NOT in this file.
+// That way, regenerating this file (app.js) never touches your real config —
+// you only ever have to set it up once.
 const firebaseApp = initializeApp(firebaseConfig);
 const auth = getAuth(firebaseApp);
 const db = getFirestore(firebaseApp);
@@ -302,6 +296,8 @@ function NPITracker({
     targetPrice: "",
     quotes: []
   });
+  const [todos, setTodos] = useState([]);
+  const [allTodos, setAllTodos] = useState([]); // cross-product, for the dashboard
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("process");
   const [showProductForm, setShowProductForm] = useState(false);
@@ -309,6 +305,7 @@ function NPITracker({
   const [saveError, setSaveError] = useState("");
   const [confirmDeleteProduct, setConfirmDeleteProduct] = useState(null);
   const [productStats, setProductStats] = useState({});
+  const [trackingItems, setTrackingItems] = useState([]);
   const [template, setTemplate] = useState(DEFAULT_STAGE_TEMPLATE);
   const [sidebarWidth, setSidebarWidth] = useState(288);
   const [isDesktop, setIsDesktop] = useState(true);
@@ -368,12 +365,14 @@ function NPITracker({
         targetPrice: "",
         quotes: []
       });
+      setTodos([]);
       return;
     }
     (async () => {
       const s = await storageGet(`samples:${selectedId}`);
       const p = await storageGet(`stages:${selectedId}`);
       const pr = await storageGet(`pricing:${selectedId}`);
+      const td = await storageGet(`todos:${selectedId}`);
       setSamples(s || []);
       setStages(p || []);
       setPricing(pr || {
@@ -383,6 +382,7 @@ function NPITracker({
         targetPrice: "",
         quotes: []
       });
+      setTodos(td || []);
     })();
   }, [selectedId]);
   const selectedProduct = products.find(p => p.id === selectedId) || null;
@@ -393,8 +393,12 @@ function NPITracker({
   useEffect(() => {
     if (!showDashboard || products.length === 0) return;
     let cancelled = false;
+    const DUE_SOON_DAYS = 3;
     (async () => {
       const result = {};
+      const tracking = [];
+      const openTodos = [];
+      const today = todayISO();
       for (const p of products) {
         const list = (await storageGet(`stages:${p.id}`)) || [];
         const total = list.length;
@@ -413,8 +417,53 @@ function NPITracker({
           delayed,
           currentStageName: currentStage ? currentStage.name || "（未命名流程）" : null
         };
+        list.forEach(s => {
+          if (s.completed || !s.plannedEnd) return;
+          const daysDelta = Math.round((toDate(s.plannedEnd) - toDate(today)) / 86400000);
+          if (daysDelta < 0) {
+            tracking.push({
+              productId: p.id,
+              productName: p.name || "未命名產品",
+              stageName: s.name || "（未命名流程）",
+              urgency: "overdue",
+              days: Math.abs(daysDelta)
+            });
+          } else if (daysDelta <= DUE_SOON_DAYS) {
+            tracking.push({
+              productId: p.id,
+              productName: p.name || "未命名產品",
+              stageName: s.name || "（未命名流程）",
+              urgency: "soon",
+              days: daysDelta
+            });
+          }
+        });
+        const todoList = (await storageGet(`todos:${p.id}`)) || [];
+        todoList.forEach(t => {
+          if (t.completed) return; // only 未結案
+          openTodos.push({
+            productId: p.id,
+            productName: p.name || "未命名產品",
+            title: t.title || "（未命名待辦）",
+            dueDate: t.dueDate || null
+          });
+        });
       }
-      if (!cancelled) setProductStats(result);
+      tracking.sort((a, b) => {
+        if (a.urgency !== b.urgency) return a.urgency === "overdue" ? -1 : 1;
+        return a.urgency === "overdue" ? b.days - a.days : a.days - b.days;
+      });
+      openTodos.sort((a, b) => {
+        if (!a.dueDate && !b.dueDate) return 0;
+        if (!a.dueDate) return 1;
+        if (!b.dueDate) return -1;
+        return new Date(a.dueDate) - new Date(b.dueDate);
+      });
+      if (!cancelled) {
+        setProductStats(result);
+        setTrackingItems(tracking);
+        setAllTodos(openTodos);
+      }
     })();
     return () => {
       cancelled = true;
@@ -469,6 +518,60 @@ function NPITracker({
       ...pricing,
       quotes: (pricing.quotes || []).filter(q => q.id !== id)
     });
+  };
+
+  // ---- todos ----
+  const persistTodos = async list => {
+    setTodos(list);
+    const ok = await storageSet(`todos:${selectedId}`, list);
+    if (!ok) setSaveError("待辦事項儲存失敗，請重試");
+  };
+  const addTodo = () => {
+    persistTodos([...todos, {
+      id: uid(),
+      title: "",
+      dueDate: "",
+      completed: false,
+      logs: []
+    }]);
+  };
+  const updateTodo = (id, field, value) => {
+    persistTodos(todos.map(t => t.id === id ? {
+      ...t,
+      [field]: value
+    } : t));
+  };
+  const deleteTodo = id => {
+    persistTodos(todos.filter(t => t.id !== id));
+  };
+  const addTodoLog = (id, text) => {
+    if (!text.trim()) return;
+    persistTodos(todos.map(t => t.id === id ? {
+      ...t,
+      logs: [...(t.logs || []), {
+        id: uid(),
+        text: text.trim(),
+        time: new Date().toISOString(),
+        editedAt: null
+      }]
+    } : t));
+  };
+  const editTodoLog = (id, logId, text) => {
+    if (!text.trim()) return;
+    persistTodos(todos.map(t => t.id === id ? {
+      ...t,
+      logs: (t.logs || []).map(l => l.id === logId ? {
+        ...l,
+        text: text.trim(),
+        editedAt: new Date().toISOString()
+      } : l)
+    } : t));
+  };
+  const deleteTodoLog = (id, logId) => {
+    persistTodos(todos.map(t => t.id === id ? {
+      ...t,
+      logs: (t.logs || []).filter(l => l.id !== logId)
+    } : t));
   };
   const persistStages = async list => {
     setStages(list);
@@ -929,9 +1032,15 @@ function NPITracker({
   }, "請從左側選擇或新增一個產品計劃") : /*#__PURE__*/React.createElement(DashboardView, {
     products: products,
     stats: productStats,
+    tracking: trackingItems,
+    allTodos: allTodos,
     onSelect: id => {
       setSelectedId(id);
       setTab("process");
+    },
+    onSelectTodo: id => {
+      setSelectedId(id);
+      setTab("todos");
     }
   }) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     className: "p-5",
@@ -1015,6 +1124,9 @@ function NPITracker({
     k: "pricing",
     label: "業務價格推廣"
   }, {
+    k: "todos",
+    label: "待辦事項"
+  }, {
     k: "template",
     label: "預設流程範本"
   }].map(t => /*#__PURE__*/React.createElement("button", {
@@ -1050,6 +1162,14 @@ function NPITracker({
     onAddQuote: addQuote,
     onUpdateQuote: updateQuote,
     onDeleteQuote: deleteQuote
+  }), tab === "todos" && /*#__PURE__*/React.createElement(TodoPanel, {
+    todos: todos,
+    onAdd: addTodo,
+    onUpdate: updateTodo,
+    onAddLog: addTodoLog,
+    onEditLog: editTodoLog,
+    onDeleteLog: deleteTodoLog,
+    onDelete: deleteTodo
   }), tab === "template" && /*#__PURE__*/React.createElement(TemplateEditor, {
     template: template,
     onAdd: addTemplateItem,
@@ -1111,7 +1231,10 @@ const STATUS_META = {
 function DashboardView({
   products,
   stats,
-  onSelect
+  tracking,
+  allTodos,
+  onSelect,
+  onSelectTodo
 }) {
   const [viewMode, setViewMode] = useState("product"); // "product" | "stage"
   const overallDelayed = products.filter(p => stats[p.id]?.delayed).length;
@@ -1181,7 +1304,74 @@ function DashboardView({
     style: {
       color: "#C1443C"
     }
-  }, " · ", overallDelayed, " 個有流程落後")), viewMode === "stage" ? /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+  }, " · ", overallDelayed, " 個有流程落後")), /*#__PURE__*/React.createElement("div", {
+    className: "mb-6"
+  }, tracking && tracking.length > 0 ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      border: "1px solid #E3E4E0",
+      borderRadius: 10,
+      background: "#fff",
+      overflow: "hidden"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-2 px-4 py-2.5",
+    style: {
+      borderBottom: "1px solid #F0F1EC"
+    }
+  }, /*#__PURE__*/React.createElement(AlertTriangle, {
+    size: 14,
+    color: "#C1443C"
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 13,
+      fontWeight: 700,
+      color: "#1B2430"
+    }
+  }, "到期追蹤"), /*#__PURE__*/React.createElement("span", {
+    className: "mono",
+    style: {
+      fontSize: 11,
+      color: "#8A9099"
+    }
+  }, tracking.length, " 項需要留意")), /*#__PURE__*/React.createElement("div", null, tracking.map((t, i) => /*#__PURE__*/React.createElement("button", {
+    key: `${t.productId}-${t.stageName}-${i}`,
+    onClick: () => onSelect(t.productId),
+    className: "w-full flex items-center gap-3 px-4 py-2",
+    style: {
+      textAlign: "left",
+      borderTop: i === 0 ? "none" : "1px solid #F8F8F6",
+      background: t.urgency === "overdue" ? "#FFFBFA" : "#FFFDF8"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "shrink-0 px-1.5 py-0.5",
+    style: {
+      fontSize: 10,
+      fontWeight: 700,
+      borderRadius: 4,
+      color: t.urgency === "overdue" ? "#C1443C" : "#B8790A",
+      background: t.urgency === "overdue" ? "#FBEDEC" : "#FBF2E2"
+    }
+  }, t.urgency === "overdue" ? `逾期 ${t.days} 天` : t.days === 0 ? "今天到期" : `${t.days} 天後到期`), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 13,
+      fontWeight: 600,
+      color: "#1B2430"
+    }
+  }, t.productName), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12,
+      color: "#8A9099"
+    }
+  }, "· ", t.stageName))))) : /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-2 px-4 py-3",
+    style: {
+      border: "1px solid #E3E4E0",
+      borderRadius: 10,
+      background: "#F4FAF9",
+      fontSize: 12,
+      color: "#2F6F6B"
+    }
+  }, "目前沒有逾期或即將到期（3天內）的流程。")), viewMode === "stage" ? /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "mb-3",
     style: {
       fontSize: 11,
@@ -1360,7 +1550,81 @@ function DashboardView({
         color: daysLeft !== null && daysLeft < 0 ? "#C1443C" : "#8A9099"
       }
     }, daysLeft !== null ? daysLeft < 0 ? `已超過 ${Math.abs(daysLeft)} 天` : `剩 ${daysLeft} 天` : "—"));
-  })));
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "mt-6"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-2 mb-3"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 15,
+      fontWeight: 700
+    }
+  }, "所有待辦事項"), /*#__PURE__*/React.createElement("span", {
+    className: "mono",
+    style: {
+      fontSize: 11,
+      color: "#8A9099"
+    }
+  }, (allTodos || []).length, " 項未結案")), !allTodos || allTodos.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-2 px-4 py-3",
+    style: {
+      border: "1px solid #E3E4E0",
+      borderRadius: 10,
+      background: "#F4FAF9",
+      fontSize: 12,
+      color: "#2F6F6B"
+    }
+  }, "目前沒有未結案的待辦事項。") : /*#__PURE__*/React.createElement("div", {
+    style: {
+      border: "1px solid #E3E4E0",
+      borderRadius: 10,
+      background: "#fff",
+      overflow: "hidden"
+    }
+  }, allTodos.map((t, i) => {
+    const diff = t.dueDate ? Math.round((toDate(t.dueDate) - toDate(todayISO())) / 86400000) : null;
+    const overdue = diff !== null && diff < 0;
+    const soon = diff !== null && diff >= 0 && diff <= 3;
+    return /*#__PURE__*/React.createElement("button", {
+      key: `${t.productId}-${i}`,
+      onClick: () => onSelectTodo(t.productId),
+      className: "w-full flex items-center gap-3 px-4 py-2.5",
+      style: {
+        textAlign: "left",
+        borderTop: i === 0 ? "none" : "1px solid #F0F1EC",
+        background: overdue ? "#FFFBFA" : soon ? "#FFFDF8" : "#fff"
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "shrink-0 px-1.5 py-0.5",
+      style: {
+        fontSize: 10,
+        fontWeight: 700,
+        borderRadius: 4,
+        color: "#5B6169",
+        background: "#F0F1EC"
+      }
+    }, t.productName), /*#__PURE__*/React.createElement("span", {
+      className: "truncate flex-1 min-w-0",
+      style: {
+        fontSize: 13,
+        fontWeight: 600,
+        color: "#1B2430"
+      }
+    }, t.title), t.dueDate ? /*#__PURE__*/React.createElement("span", {
+      className: "mono shrink-0",
+      style: {
+        fontSize: 11,
+        fontWeight: overdue || soon ? 700 : 400,
+        color: overdue ? "#C1443C" : soon ? "#B8790A" : "#8A9099"
+      }
+    }, overdue ? `逾期 ${Math.abs(diff)} 天` : diff === 0 ? "今天到期" : soon ? `${diff} 天後到期` : t.dueDate) : /*#__PURE__*/React.createElement("span", {
+      className: "shrink-0",
+      style: {
+        fontSize: 11,
+        color: "#B4B7AF"
+      }
+    }, "未設到期日"));
+  }))));
 }
 function HeaderGantt({
   stages
@@ -2308,6 +2572,403 @@ const inputSm = {
   fontSize: 12,
   width: "100%"
 };
+const TODO_COLLAPSE_THRESHOLD = 4;
+function daysDiffFromToday(dateStr) {
+  if (!dateStr) return null;
+  return Math.round((toDate(dateStr) - toDate(todayISO())) / 86400000);
+}
+function DueBadge({
+  dateStr,
+  completed
+}) {
+  if (!dateStr || completed) return null;
+  const diff = daysDiffFromToday(dateStr);
+  if (diff < 0) return /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 10,
+      fontWeight: 700,
+      color: "#C1443C",
+      background: "#FBEDEC",
+      borderRadius: 4,
+      padding: "2px 6px"
+    }
+  }, "逾期 ", Math.abs(diff), " 天");
+  if (diff === 0) return /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 10,
+      fontWeight: 700,
+      color: "#B8790A",
+      background: "#FBF2E2",
+      borderRadius: 4,
+      padding: "2px 6px"
+    }
+  }, "今天到期");
+  if (diff <= 3) return /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 10,
+      fontWeight: 700,
+      color: "#B8790A",
+      background: "#FBF2E2",
+      borderRadius: 4,
+      padding: "2px 6px"
+    }
+  }, diff, " 天後到期");
+  return /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 10,
+      color: "#8A9099"
+    }
+  }, diff, " 天後");
+}
+function TodoPanel({
+  todos,
+  onAdd,
+  onUpdate,
+  onAddLog,
+  onEditLog,
+  onDeleteLog,
+  onDelete
+}) {
+  const [logModalId, setLogModalId] = useState(null);
+  const logModalTodo = todos.find(t => t.id === logModalId) || null;
+  const sorted = [...todos].sort((a, b) => {
+    if (!!a.completed !== !!b.completed) return a.completed ? 1 : -1;
+    if (!a.dueDate) return 1;
+    if (!b.dueDate) return -1;
+    return new Date(a.dueDate) - new Date(b.dueDate);
+  });
+  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-between mb-3"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 14,
+      fontWeight: 600
+    }
+  }, "待辦事項"), /*#__PURE__*/React.createElement("div", {
+    className: "mt-0.5",
+    style: {
+      fontSize: 11,
+      color: "#8A9099"
+    }
+  }, "輕量記事用，不綁特定流程。設定到期日的話，快到期或逾期會自動出現在「總覽儀表板」的到期追蹤裡。")), /*#__PURE__*/React.createElement("button", {
+    onClick: onAdd,
+    className: "flex items-center gap-1 px-3 py-1.5 shrink-0",
+    style: {
+      fontSize: 12,
+      color: "#fff",
+      background: "#1B2430",
+      borderRadius: 6
+    }
+  }, /*#__PURE__*/React.createElement(Plus, {
+    size: 13
+  }), " 新增待辦")), sorted.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    className: "text-center py-8",
+    style: {
+      border: "1px dashed #D9DBD5",
+      borderRadius: 8,
+      fontSize: 12,
+      color: "#8A9099"
+    }
+  }, "尚無待辦事項，點「新增待辦」開始記錄。") : /*#__PURE__*/React.createElement("div", {
+    className: "space-y-2"
+  }, sorted.map(t => {
+    const logs = t.logs || [];
+    const latest = logs.length > 0 ? [...logs].sort((a, b) => new Date(b.time) - new Date(a.time))[0] : null;
+    return /*#__PURE__*/React.createElement("div", {
+      key: t.id,
+      className: "flex items-center gap-3 p-3",
+      style: {
+        border: "1px solid #E3E4E0",
+        borderRadius: 8,
+        background: "#fff",
+        opacity: t.completed ? 0.45 : 1,
+        transition: "opacity 0.15s"
+      }
+    }, /*#__PURE__*/React.createElement("input", {
+      type: "checkbox",
+      checked: !!t.completed,
+      onChange: () => onUpdate(t.id, "completed", !t.completed),
+      className: "shrink-0",
+      style: {
+        width: 18,
+        height: 18
+      }
+    }), /*#__PURE__*/React.createElement("input", {
+      value: t.title || "",
+      placeholder: "這筆待辦的主題",
+      onChange: e => onUpdate(t.id, "title", e.target.value),
+      className: "flex-1 min-w-0",
+      style: {
+        border: "none",
+        outline: "none",
+        fontSize: 14,
+        fontWeight: 600,
+        background: "transparent",
+        textDecoration: t.completed ? "line-through" : "none"
+      }
+    }), /*#__PURE__*/React.createElement("div", {
+      className: "flex items-center gap-2 shrink-0",
+      style: {
+        width: 200
+      }
+    }, /*#__PURE__*/React.createElement("input", {
+      type: "date",
+      value: t.dueDate || "",
+      onChange: e => onUpdate(t.id, "dueDate", e.target.value),
+      className: "mono",
+      style: {
+        border: "1px solid #D9DBD5",
+        borderRadius: 5,
+        padding: "5px 8px",
+        fontSize: 14,
+        textDecoration: t.completed ? "line-through" : "none"
+      }
+    }), /*#__PURE__*/React.createElement(DueBadge, {
+      dateStr: t.dueDate,
+      completed: t.completed
+    })), /*#__PURE__*/React.createElement("button", {
+      onClick: () => setLogModalId(t.id),
+      className: "flex items-center gap-1.5 shrink-0 px-2.5 py-1.5 min-w-0",
+      style: {
+        border: "1px dashed #D9DBD5",
+        borderRadius: 6,
+        width: 260
+      }
+    }, /*#__PURE__*/React.createElement(MessageSquare, {
+      size: 13,
+      color: "#8A9099",
+      className: "shrink-0"
+    }), latest ? /*#__PURE__*/React.createElement("div", {
+      className: "flex flex-col items-start min-w-0"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "truncate",
+      style: {
+        fontSize: 13,
+        color: "#5B6169",
+        maxWidth: 200
+      }
+    }, latest.text), /*#__PURE__*/React.createElement("span", {
+      className: "mono",
+      style: {
+        fontSize: 11,
+        color: "#B4B7AF"
+      }
+    }, formatDT(latest.time), " · 共", logs.length, "則")) : /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 13,
+        color: "#8A9099"
+      }
+    }, "記歷程")), /*#__PURE__*/React.createElement("button", {
+      onClick: () => onDelete(t.id),
+      className: "shrink-0",
+      style: {
+        color: "#B4B7AF"
+      }
+    }, /*#__PURE__*/React.createElement(Trash2, {
+      size: 14
+    })));
+  })), logModalTodo && /*#__PURE__*/React.createElement(TodoLogModal, {
+    todo: logModalTodo,
+    onAdd: text => onAddLog(logModalTodo.id, text),
+    onEdit: (logId, text) => onEditLog(logModalTodo.id, logId, text),
+    onDelete: logId => onDeleteLog(logModalTodo.id, logId),
+    onClose: () => setLogModalId(null)
+  }));
+}
+function TodoLogModal({
+  todo,
+  onAdd,
+  onEdit,
+  onDelete,
+  onClose
+}) {
+  const [draft, setDraft] = useState("");
+  const [showAll, setShowAll] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [editDraft, setEditDraft] = useState("");
+  const logs = [...(todo.logs || [])].sort((a, b) => new Date(b.time) - new Date(a.time));
+  const isLong = logs.length > TODO_COLLAPSE_THRESHOLD;
+  const visible = isLong && !showAll ? logs.slice(0, TODO_COLLAPSE_THRESHOLD) : logs;
+  const submit = () => {
+    if (!draft.trim()) return;
+    onAdd(draft);
+    setDraft("");
+  };
+  const startEdit = l => {
+    setEditingId(l.id);
+    setEditDraft(l.text);
+  };
+  const saveEdit = () => {
+    if (!editDraft.trim()) return;
+    onEdit(editingId, editDraft);
+    setEditingId(null);
+    setEditDraft("");
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-center p-4",
+    style: {
+      position: "fixed",
+      inset: 0,
+      background: "rgba(0,0,0,0.4)",
+      zIndex: 60
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "w-full p-5",
+    style: {
+      maxWidth: 420,
+      maxHeight: "85vh",
+      display: "flex",
+      flexDirection: "column",
+      background: "#fff",
+      borderRadius: 8
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-between mb-3 shrink-0"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 15,
+      fontWeight: 700
+    }
+  }, todo.title || "（未命名待辦）", " · 歷程"), /*#__PURE__*/React.createElement("button", {
+    onClick: onClose
+  }, /*#__PURE__*/React.createElement(X, {
+    size: 18,
+    color: "#8A9099"
+  }))), /*#__PURE__*/React.createElement("div", {
+    className: "flex gap-2 mb-3 shrink-0"
+  }, /*#__PURE__*/React.createElement("textarea", {
+    value: draft,
+    onChange: e => setDraft(e.target.value),
+    placeholder: "記錄這次更新了什麼，送出時自動記錄時間",
+    rows: 2,
+    style: {
+      flex: 1,
+      border: "1px solid #D9DBD5",
+      borderRadius: 6,
+      padding: "6px 8px",
+      fontSize: 13,
+      resize: "vertical",
+      fontFamily: "inherit"
+    }
+  }), /*#__PURE__*/React.createElement("button", {
+    onClick: submit,
+    className: "shrink-0 px-3",
+    style: {
+      fontSize: 12,
+      color: "#fff",
+      background: "#1B2430",
+      borderRadius: 6
+    }
+  }, "新增")), /*#__PURE__*/React.createElement("div", {
+    className: "overflow-y-auto",
+    style: {
+      flex: 1
+    }
+  }, logs.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    className: "text-center py-6",
+    style: {
+      fontSize: 12,
+      color: "#8A9099"
+    }
+  }, "尚無歷程") : /*#__PURE__*/React.createElement("div", {
+    className: "space-y-2"
+  }, visible.map(l => /*#__PURE__*/React.createElement("div", {
+    key: l.id,
+    className: "p-2",
+    style: {
+      border: "1px solid #E3E4E0",
+      borderRadius: 6,
+      background: "#FAFAF8"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-between mb-1"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "mono",
+    style: {
+      fontSize: 10,
+      color: "#8A9099"
+    }
+  }, formatDT(l.time), l.editedAt && /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "#B4B7AF"
+    }
+  }, " · 已編輯 ", formatDT(l.editedAt))), editingId !== l.id && /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-2"
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => startEdit(l),
+    style: {
+      color: "#8A9099"
+    }
+  }, /*#__PURE__*/React.createElement(Pencil, {
+    size: 12
+  })), /*#__PURE__*/React.createElement("button", {
+    onClick: () => onDelete(l.id),
+    style: {
+      color: "#B4B7AF"
+    }
+  }, /*#__PURE__*/React.createElement(Trash2, {
+    size: 12
+  })))), editingId === l.id ? /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("textarea", {
+    value: editDraft,
+    onChange: e => setEditDraft(e.target.value),
+    rows: 2,
+    autoFocus: true,
+    style: {
+      width: "100%",
+      border: "1px solid #D9DBD5",
+      borderRadius: 6,
+      padding: "6px 8px",
+      fontSize: 13,
+      resize: "vertical",
+      fontFamily: "inherit"
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "flex justify-end gap-2 mt-1"
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => {
+      setEditingId(null);
+      setEditDraft("");
+    },
+    style: {
+      fontSize: 11,
+      color: "#8A9099"
+    }
+  }, "取消"), /*#__PURE__*/React.createElement("button", {
+    onClick: saveEdit,
+    className: "px-2 py-1",
+    style: {
+      fontSize: 11,
+      color: "#fff",
+      background: "#1B2430",
+      borderRadius: 5
+    }
+  }, "儲存"))) : /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      whiteSpace: "pre-wrap"
+    }
+  }, l.text)))), isLong && /*#__PURE__*/React.createElement("button", {
+    onClick: () => setShowAll(v => !v),
+    className: "w-full text-center mt-2 py-1.5",
+    style: {
+      fontSize: 12,
+      color: "#5B6169",
+      border: "1px dashed #D9DBD5",
+      borderRadius: 6
+    }
+  }, showAll ? "收合" : `顯示全部 ${logs.length} 則`)), /*#__PURE__*/React.createElement("div", {
+    className: "flex justify-end mt-4 shrink-0"
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: onClose,
+    className: "px-4 py-2",
+    style: {
+      fontSize: 14,
+      color: "#fff",
+      background: "#1B2430",
+      borderRadius: 6
+    }
+  }, "關閉"))));
+}
 function TemplateEditor({
   template,
   onAdd,
