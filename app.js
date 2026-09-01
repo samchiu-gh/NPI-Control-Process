@@ -3171,19 +3171,19 @@ function ProcessPanel({
   // larger text just for this table — scoped locally so it doesn't affect the
   // samples / template / pricing tables, which weren't asked to change.
   const pThStyle = {
-    padding: "9px 10px",
-    fontSize: 12,
-    color: "#8A9099",
+    padding: "8px 10px",
+    fontSize: 11,
+    color: "#fff",
     whiteSpace: "nowrap"
   };
   const pTdStyle = {
-    padding: "9px 8px",
+    padding: "5px 8px",
     verticalAlign: "middle"
   };
   const pCellInput = {
-    border: "1px solid #D9DBD5",
+    border: "1px solid #B9BEC6",
     borderRadius: 5,
-    padding: "6px 8px",
+    padding: "4px 8px",
     fontSize: 14,
     width: "100%"
   };
@@ -3215,7 +3215,7 @@ function ProcessPanel({
     text: "尚無流程項目，點「新增流程」建立第一個階段。"
   }) : /*#__PURE__*/React.createElement("div", {
     style: {
-      border: "1px solid #E3E4E0",
+      border: "1px solid #B9BEC6",
       borderRadius: 8,
       overflow: "auto",
       maxWidth: "100%"
@@ -3229,7 +3229,7 @@ function ProcessPanel({
     }
   }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", {
     style: {
-      background: "#F0F1EC",
+      background: "#1B2430",
       position: "sticky",
       top: 0,
       zIndex: 1
@@ -3243,12 +3243,12 @@ function ProcessPanel({
     }
   }, h)))), /*#__PURE__*/React.createElement("tbody", null, stages.map((s, i) => {
     const deps = (s.dependsOn || []).map(id => stages.find(x => x.id === id)).filter(Boolean);
-    const rowBg = i % 2 ? "#fff" : "#FAFAF8";
+    const rowBg = i % 2 ? "#fff" : "#EEF1F6";
     return /*#__PURE__*/React.createElement("tr", {
       key: s.id,
       style: {
         background: rowBg,
-        borderTop: "1px solid #E3E4E0",
+        borderTop: "1px solid #D5D9DF",
         opacity: s.completed ? 0.42 : 1,
         transition: "opacity 0.15s"
       }
@@ -3297,8 +3297,9 @@ function ProcessPanel({
       checked: !!s.completed,
       onChange: () => onUpdate(s.id, "completed", !s.completed),
       style: {
-        width: 17,
-        height: 17
+        width: 16,
+        height: 16,
+        accentColor: "#1B2430"
       }
     })), /*#__PURE__*/React.createElement("td", {
       style: {
@@ -3350,13 +3351,14 @@ function ProcessPanel({
       }
     }, /*#__PURE__*/React.createElement("button", {
       onClick: () => setDepModalId(s.id),
-      className: "flex items-center gap-1 px-2 py-1.5",
+      className: "flex items-center gap-1 px-2 py-1",
       style: {
         fontSize: 13,
-        border: "1px dashed #D9DBD5",
+        border: `1.5px solid ${deps.length ? "#1B2430" : "#B9BEC6"}`,
         borderRadius: 6,
         color: deps.length ? "#1B2430" : "#8A9099",
-        width: "100%"
+        width: "100%",
+        background: deps.length ? "#EEF1F6" : "#fff"
       }
     }, /*#__PURE__*/React.createElement(Link2, {
       size: 13
@@ -3370,10 +3372,10 @@ function ProcessPanel({
       className: "w-full",
       style: {
         textAlign: "left",
-        padding: "6px 8px",
-        border: "1px dashed #D9DBD5",
+        padding: "4px 8px",
+        border: `1.5px solid ${(s.notes || []).length > 0 ? "#1B2430" : "#B9BEC6"}`,
         borderRadius: 6,
-        background: "#fff"
+        background: (s.notes || []).length > 0 ? "#EEF1F6" : "#fff"
       }
     }, (s.notes || []).length > 0 ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
       className: "flex items-center gap-1",
