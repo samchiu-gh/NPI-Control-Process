@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { Plus, Trash2, Upload, ChevronRight, ChevronUp, ChevronDown, Package, AlertTriangle, CalendarDays, MessageSquare, LayoutDashboard, X, Pencil, Link2, Copy, LogOut } from "lucide-react";
+import { Plus, Trash2, Upload, ChevronRight, ChevronUp, ChevronDown, Package, AlertTriangle, CalendarDays, MessageSquare, LayoutDashboard, Settings, X, Pencil, Link2, Copy, LogOut } from "lucide-react";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
 import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
@@ -302,6 +302,9 @@ function NPITracker({
   const [tab, setTab] = useState("process");
   const [showProductForm, setShowProductForm] = useState(false);
   const [editProduct, setEditProduct] = useState(null);
+  const [pendingNewProduct, setPendingNewProduct] = useState(null);
+  const [showTemplateStep, setShowTemplateStep] = useState(false);
+  const [showTemplateSettings, setShowTemplateSettings] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [confirmDeleteProduct, setConfirmDeleteProduct] = useState(null);
   const [productStats, setProductStats] = useState({});
@@ -444,6 +447,7 @@ function NPITracker({
           openTodos.push({
             productId: p.id,
             productName: p.name || "未命名產品",
+            companyPN: p.companyPN || "",
             title: t.title || "（未命名待辦）",
             dueDate: t.dueDate || null
           });
@@ -584,20 +588,27 @@ function NPITracker({
         ...p,
         ...data
       } : p));
+      setShowProductForm(false);
+      setEditProduct(null);
     } else {
-      const np = {
-        ...data,
-        id: uid()
-      };
-      await persistProducts([...products, np]);
-      const savedTemplate = await storageGet("template:stages");
-      await storageSet(`stages:${np.id}`, instantiateStages(savedTemplate || DEFAULT_STAGE_TEMPLATE));
-      await storageSet(`samples:${np.id}`, []);
-      setSelectedId(np.id);
-      setTab("process");
+      // don't create yet — first let them review/adjust the process template
+      setPendingNewProduct(data);
+      setShowProductForm(false);
+      setShowTemplateStep(true);
     }
-    setShowProductForm(false);
-    setEditProduct(null);
+  };
+  const finalizeNewProduct = async () => {
+    const np = {
+      ...pendingNewProduct,
+      id: uid()
+    };
+    await persistProducts([...products, np]);
+    await storageSet(`stages:${np.id}`, instantiateStages(template));
+    await storageSet(`samples:${np.id}`, []);
+    setSelectedId(np.id);
+    setTab("process");
+    setShowTemplateStep(false);
+    setPendingNewProduct(null);
   };
   const deleteProduct = id => {
     persistProducts(products.filter(p => p.id !== id));
@@ -915,6 +926,19 @@ function NPITracker({
   }, /*#__PURE__*/React.createElement(LayoutDashboard, {
     size: 15
   })), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setShowTemplateSettings(true),
+    className: "flex items-center justify-center rounded-md",
+    style: {
+      width: 32,
+      height: 32,
+      background: "transparent",
+      color: C.muted,
+      border: `1px solid ${C.border}`
+    },
+    title: "流程範本設定"
+  }, /*#__PURE__*/React.createElement(Settings, {
+    size: 14
+  })), /*#__PURE__*/React.createElement("button", {
     onClick: () => {
       setEditProduct(null);
       setShowProductForm(true);
@@ -1123,9 +1147,6 @@ function NPITracker({
   }, {
     k: "pricing",
     label: "業務價格推廣"
-  }, {
-    k: "template",
-    label: "預設流程範本"
   }].map(t => /*#__PURE__*/React.createElement("button", {
     key: t.k,
     onClick: () => setTab(t.k),
@@ -1172,17 +1193,12 @@ function NPITracker({
     onAddQuote: addQuote,
     onUpdateQuote: updateQuote,
     onDeleteQuote: deleteQuote
-  }), tab === "template" && /*#__PURE__*/React.createElement(TemplateEditor, {
-    template: template,
-    onAdd: addTemplateItem,
-    onUpdate: updateTemplateItem,
-    onDelete: deleteTemplateItem,
-    onReorder: moveTemplateItem
   }))))), showProductForm && /*#__PURE__*/React.createElement(ProductForm, {
-    initial: editProduct,
+    initial: editProduct || pendingNewProduct,
     onCancel: () => {
       setShowProductForm(false);
       setEditProduct(null);
+      setPendingNewProduct(null);
     },
     onSave: saveProduct,
     onDelete: editProduct ? () => setConfirmDeleteProduct(editProduct) : null,
@@ -1191,6 +1207,25 @@ function NPITracker({
       setShowProductForm(false);
       setEditProduct(null);
     } : null
+  }), showTemplateStep && pendingNewProduct && /*#__PURE__*/React.createElement(NewProductTemplateStep, {
+    productName: pendingNewProduct.name || "未命名產品",
+    template: template,
+    onAdd: addTemplateItem,
+    onUpdate: updateTemplateItem,
+    onDelete: deleteTemplateItem,
+    onReorder: moveTemplateItem,
+    onBack: () => {
+      setShowTemplateStep(false);
+      setShowProductForm(true);
+    },
+    onConfirm: finalizeNewProduct
+  }), showTemplateSettings && /*#__PURE__*/React.createElement(TemplateSettingsModal, {
+    template: template,
+    onAdd: addTemplateItem,
+    onUpdate: updateTemplateItem,
+    onDelete: deleteTemplateItem,
+    onReorder: moveTemplateItem,
+    onClose: () => setShowTemplateSettings(false)
   }), confirmDeleteProduct && /*#__PURE__*/React.createElement(ConfirmModal, {
     title: "刪除產品計劃",
     message: `確定要刪除「${confirmDeleteProduct.name || "未命名產品"}」嗎？清單會移除，但送樣/流程的舊資料鍵不會自動清除（僅個人儲存空間中殘留，不影響其他計劃）。`,
@@ -1605,7 +1640,7 @@ function DashboardView({
         color: "#5B6169",
         background: "#F0F1EC"
       }
-    }, t.productName), /*#__PURE__*/React.createElement("span", {
+    }, t.companyPN || t.productName), /*#__PURE__*/React.createElement("span", {
       className: "truncate flex-1 min-w-0",
       style: {
         fontSize: 13,
@@ -1841,6 +1876,148 @@ function Field({
     }
   }, fmt(value)));
 }
+function TemplateSettingsModal({
+  template,
+  onAdd,
+  onUpdate,
+  onDelete,
+  onReorder,
+  onClose
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-center p-4",
+    style: {
+      position: "fixed",
+      inset: 0,
+      background: "rgba(0,0,0,0.45)",
+      zIndex: 65
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "w-full p-5",
+    style: {
+      maxWidth: 920,
+      maxHeight: "88vh",
+      display: "flex",
+      flexDirection: "column",
+      background: "#fff",
+      borderRadius: 8
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-between shrink-0 mb-1"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "display font-bold",
+    style: {
+      fontSize: 17
+    }
+  }, "流程範本設定"), /*#__PURE__*/React.createElement("button", {
+    onClick: onClose
+  }, /*#__PURE__*/React.createElement(X, {
+    size: 18,
+    color: "#8A9099"
+  }))), /*#__PURE__*/React.createElement("div", {
+    className: "overflow-y-auto mt-3",
+    style: {
+      flex: 1
+    }
+  }, /*#__PURE__*/React.createElement(TemplateEditor, {
+    template: template,
+    onAdd: onAdd,
+    onUpdate: onUpdate,
+    onDelete: onDelete,
+    onReorder: onReorder
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "flex justify-end mt-4 pt-4 shrink-0",
+    style: {
+      borderTop: "1px solid #EDEEEA"
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: onClose,
+    className: "px-4 py-2",
+    style: {
+      fontSize: 14,
+      color: "#fff",
+      background: "#1B2430",
+      borderRadius: 6
+    }
+  }, "關閉"))));
+}
+function NewProductTemplateStep({
+  productName,
+  template,
+  onAdd,
+  onUpdate,
+  onDelete,
+  onReorder,
+  onBack,
+  onConfirm
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-center p-4",
+    style: {
+      position: "fixed",
+      inset: 0,
+      background: "rgba(0,0,0,0.45)",
+      zIndex: 65
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "w-full p-5",
+    style: {
+      maxWidth: 920,
+      maxHeight: "88vh",
+      display: "flex",
+      flexDirection: "column",
+      background: "#fff",
+      borderRadius: 8
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "shrink-0 mb-1"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "mono",
+    style: {
+      fontSize: 11,
+      color: "#8A9099"
+    }
+  }, "新增產品計劃 · 步驟 2 / 2"), /*#__PURE__*/React.createElement("div", {
+    className: "display font-bold",
+    style: {
+      fontSize: 17
+    }
+  }, "「", productName, "」要用哪些流程？")), /*#__PURE__*/React.createElement("div", {
+    className: "overflow-y-auto mt-3",
+    style: {
+      flex: 1
+    }
+  }, /*#__PURE__*/React.createElement(TemplateEditor, {
+    template: template,
+    onAdd: onAdd,
+    onUpdate: onUpdate,
+    onDelete: onDelete,
+    onReorder: onReorder
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-between mt-4 pt-4 shrink-0",
+    style: {
+      borderTop: "1px solid #EDEEEA"
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: onBack,
+    className: "px-4 py-2",
+    style: {
+      fontSize: 14,
+      color: "#5B6169",
+      border: "1px solid #D9DBD5",
+      borderRadius: 6
+    }
+  }, "上一步"), /*#__PURE__*/React.createElement("button", {
+    onClick: onConfirm,
+    className: "px-4 py-2",
+    style: {
+      fontSize: 14,
+      color: "#fff",
+      background: "#1B2430",
+      borderRadius: 6
+    }
+  }, "建立產品計劃"))));
+}
 function ProductForm({
   initial,
   onCancel,
@@ -1907,7 +2084,7 @@ function ProductForm({
     style: {
       fontSize: 16
     }
-  }, initial ? "編輯產品計劃" : "新增產品計劃"), /*#__PURE__*/React.createElement("button", {
+  }, initial?.id ? "編輯產品計劃" : "新增產品計劃"), /*#__PURE__*/React.createElement("button", {
     onClick: onCancel
   }, /*#__PURE__*/React.createElement(X, {
     size: 18,
@@ -2029,7 +2206,7 @@ function ProductForm({
       borderRadius: 6,
       opacity: uploading ? 0.6 : 1
     }
-  }, uploading ? "照片上傳中…" : "儲存")))));
+  }, uploading ? "照片上傳中…" : initial?.id ? "儲存" : "下一步：設定流程範本")))));
 }
 function LabeledInput({
   label,
