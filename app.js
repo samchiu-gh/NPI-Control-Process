@@ -633,10 +633,10 @@ function NPITracker({
     const ok = await storageSet(`milestones:${selectedId}`, list);
     if (!ok) setSaveError("里程碑資料儲存失敗，請重試");
   };
-  const addMilestone = () => {
+  const addMilestone = name => {
     persistMilestones([...milestones, {
       id: uid(),
-      name: "",
+      name: name || "",
       status: "not-started"
     }]);
   };
@@ -1260,6 +1260,7 @@ function NPITracker({
     }
   }, /*#__PURE__*/React.createElement(MilestonePanel, {
     milestones: milestones,
+    milestoneTemplate: milestoneTemplate,
     onAdd: addMilestone,
     onUpdate: updateMilestone,
     onDelete: deleteMilestone,
@@ -2024,17 +2025,34 @@ const MILESTONE_STATUS_META = {
 };
 function MilestonePanel({
   milestones,
+  milestoneTemplate,
   onAdd,
   onUpdate,
   onDelete,
   onReorder
 }) {
+  const [showAddMenu, setShowAddMenu] = useState(false);
   const cycleStatus = m => {
     const idx = MILESTONE_STATUS_CYCLE.indexOf(m.status || "not-started");
     onUpdate(m.id, "status", MILESTONE_STATUS_CYCLE[(idx + 1) % MILESTONE_STATUS_CYCLE.length]);
   };
+  // template items this product doesn't already have (by exact name) — picking one of
+  // these guarantees the name matches the dashboard overview's column, byte for byte.
+  const existingNames = new Set(milestones.map(m => m.name));
+  const availableFromTemplate = (milestoneTemplate || []).filter(t => t.name && !existingNames.has(t.name));
+  const pickFromTemplate = name => {
+    onAdd(name);
+    setShowAddMenu(false);
+  };
+  const pickCustom = () => {
+    onAdd();
+    setShowAddMenu(false);
+  };
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center justify-between mb-2.5"
+    className: "flex items-center justify-between mb-2.5",
+    style: {
+      position: "relative"
+    }
   }, /*#__PURE__*/React.createElement("span", {
     style: {
       fontSize: 12,
@@ -2042,7 +2060,7 @@ function MilestonePanel({
       color: "#1B2430"
     }
   }, "重要里程碑"), /*#__PURE__*/React.createElement("button", {
-    onClick: onAdd,
+    onClick: () => setShowAddMenu(v => !v),
     className: "flex items-center gap-1",
     style: {
       fontSize: 12,
@@ -2050,7 +2068,54 @@ function MilestonePanel({
     }
   }, /*#__PURE__*/React.createElement(Plus, {
     size: 13
-  }), " 新增里程碑")), milestones.length === 0 ? /*#__PURE__*/React.createElement("div", {
+  }), " 新增里程碑"), showAddMenu && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    onClick: () => setShowAddMenu(false),
+    style: {
+      position: "fixed",
+      inset: 0,
+      zIndex: 70
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "absolute",
+      top: 22,
+      right: 0,
+      zIndex: 71,
+      background: "#fff",
+      border: "1px solid #E3E4E0",
+      borderRadius: 8,
+      boxShadow: "0 4px 14px rgba(0,0,0,0.1)",
+      minWidth: 180,
+      overflow: "hidden"
+    }
+  }, availableFromTemplate.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "px-3 pt-2 pb-1",
+    style: {
+      fontSize: 10,
+      color: "#B4B7AF"
+    }
+  }, "範本項目（名稱會跟總覽對得上）"), availableFromTemplate.map(t => /*#__PURE__*/React.createElement("button", {
+    key: t.id,
+    onClick: () => pickFromTemplate(t.name),
+    className: "block w-full px-3 py-2",
+    style: {
+      textAlign: "left",
+      fontSize: 13,
+      color: "#1B2430"
+    }
+  }, t.name)), availableFromTemplate.length > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      borderTop: "1px solid #F0F1EC"
+    }
+  }), /*#__PURE__*/React.createElement("button", {
+    onClick: pickCustom,
+    className: "block w-full px-3 py-2",
+    style: {
+      textAlign: "left",
+      fontSize: 13,
+      color: "#5B6169"
+    }
+  }, "自訂名稱…")))), milestones.length === 0 ? /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 12,
       color: "#B4B7AF"
