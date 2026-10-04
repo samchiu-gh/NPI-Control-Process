@@ -138,6 +138,34 @@ function forecastDelay(stageId, stages, memo = {}) {
   return result;
 }
 
+// ---------- key milestone overview ----------
+// A small, independent list per product (NOT derived from the process-stage table),
+// so management can manually mark which of a few key checkpoints each product has
+// reached. Seeded from a shared template when a product is created; each product can
+// then freely add/rename/delete its own items afterward.
+const DEFAULT_MILESTONE_TEMPLATE = [{
+  id: "m1",
+  name: "產品測試"
+}, {
+  id: "m2",
+  name: "小批量試單"
+}, {
+  id: "m3",
+  name: "技術移轉"
+}, {
+  id: "m4",
+  name: "結案"
+}];
+
+// turns a milestone template into real per-product records — fresh ids, status reset.
+function instantiateMilestones(template) {
+  return template.map(t => ({
+    id: uid(),
+    name: t.name,
+    status: "not-started"
+  }));
+}
+
 // ---------- default stage template ----------
 // This is the starting template used the very first time (before the user
 // customizes it via the "預設流程範本" tab). Once they save changes there,
@@ -297,6 +325,7 @@ function NPITracker({
     quotes: []
   });
   const [todos, setTodos] = useState([]);
+  const [milestones, setMilestones] = useState([]);
   const [allTodos, setAllTodos] = useState([]); // cross-product, for the dashboard
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("process");
@@ -309,7 +338,9 @@ function NPITracker({
   const [confirmDeleteProduct, setConfirmDeleteProduct] = useState(null);
   const [productStats, setProductStats] = useState({});
   const [trackingItems, setTrackingItems] = useState([]);
+  const [milestoneStatus, setMilestoneStatus] = useState({});
   const [template, setTemplate] = useState(DEFAULT_STAGE_TEMPLATE);
+  const [milestoneTemplate, setMilestoneTemplate] = useState(DEFAULT_MILESTONE_TEMPLATE);
   const [sidebarWidth, setSidebarWidth] = useState(288);
   const [isDesktop, setIsDesktop] = useState(true);
   const containerRef = useRef(null);
@@ -318,6 +349,8 @@ function NPITracker({
     (async () => {
       const saved = await storageGet("template:stages");
       if (saved) setTemplate(saved);
+      const savedMs = await storageGet("template:milestones");
+      if (savedMs) setMilestoneTemplate(savedMs);
     })();
   }, []);
   useEffect(() => {
@@ -369,6 +402,7 @@ function NPITracker({
         quotes: []
       });
       setTodos([]);
+      setMilestones([]);
       return;
     }
     (async () => {
@@ -376,6 +410,7 @@ function NPITracker({
       const p = await storageGet(`stages:${selectedId}`);
       const pr = await storageGet(`pricing:${selectedId}`);
       const td = await storageGet(`todos:${selectedId}`);
+      const ms = await storageGet(`milestones:${selectedId}`);
       setSamples(s || []);
       setStages(p || []);
       setPricing(pr || {
@@ -386,6 +421,7 @@ function NPITracker({
         quotes: []
       });
       setTodos(td || []);
+      setMilestones(ms || []);
     })();
   }, [selectedId]);
   const selectedProduct = products.find(p => p.id === selectedId) || null;
@@ -401,6 +437,7 @@ function NPITracker({
       const result = {};
       const tracking = [];
       const openTodos = [];
+      const milestones = {};
       const today = todayISO();
       for (const p of products) {
         const list = (await storageGet(`stages:${p.id}`)) || [];
@@ -420,6 +457,17 @@ function NPITracker({
           delayed,
           currentStageName: currentStage ? currentStage.name || "（未命名流程）" : null
         };
+
+        // key-milestone overview: read this product's own independent milestone list
+        // (not derived from the process-stage table) and index by name for lookup below.
+        // Matching is by exact name, so if a product's milestone entry is renamed or
+        // deleted, it will simply stop lining up with the shared template's column.
+        const msList = (await storageGet(`milestones:${p.id}`)) || [];
+        const byName = {};
+        msList.forEach(m => {
+          byName[m.name] = m.status;
+        });
+        milestones[p.id] = byName;
         list.forEach(s => {
           if (s.completed || !s.plannedEnd) return;
           const daysDelta = Math.round((toDate(s.plannedEnd) - toDate(today)) / 86400000);
@@ -467,6 +515,7 @@ function NPITracker({
         setProductStats(result);
         setTrackingItems(tracking);
         setAllTodos(openTodos);
+        setMilestoneStatus(milestones);
       }
     })();
     return () => {
@@ -577,6 +626,37 @@ function NPITracker({
       logs: (t.logs || []).filter(l => l.id !== logId)
     } : t));
   };
+
+  // ---- key milestones (per product, independent of the process-stage table) ----
+  const persistMilestones = async list => {
+    setMilestones(list);
+    const ok = await storageSet(`milestones:${selectedId}`, list);
+    if (!ok) setSaveError("里程碑資料儲存失敗，請重試");
+  };
+  const addMilestone = () => {
+    persistMilestones([...milestones, {
+      id: uid(),
+      name: "",
+      status: "not-started"
+    }]);
+  };
+  const updateMilestone = (id, field, value) => {
+    persistMilestones(milestones.map(m => m.id === id ? {
+      ...m,
+      [field]: value
+    } : m));
+  };
+  const deleteMilestone = id => {
+    persistMilestones(milestones.filter(m => m.id !== id));
+  };
+  const moveMilestone = (id, direction) => {
+    const idx = milestones.findIndex(m => m.id === id);
+    const targetIdx = idx + direction;
+    if (idx === -1 || targetIdx < 0 || targetIdx >= milestones.length) return;
+    const next = [...milestones];
+    [next[idx], next[targetIdx]] = [next[targetIdx], next[idx]];
+    persistMilestones(next);
+  };
   const persistStages = async list => {
     setStages(list);
     const ok = await storageSet(`stages:${selectedId}`, list);
@@ -605,6 +685,7 @@ function NPITracker({
     await persistProducts([...products, np]);
     await storageSet(`stages:${np.id}`, instantiateStages(template));
     await storageSet(`samples:${np.id}`, []);
+    await storageSet(`milestones:${np.id}`, instantiateMilestones(milestoneTemplate));
     setSelectedId(np.id);
     setTab("process");
     setShowTemplateStep(false);
@@ -658,6 +739,14 @@ function NPITracker({
     await storageSet(`stages:${newProduct.id}`, newStages);
     await storageSet(`samples:${newProduct.id}`, []); // sample records are batch-specific, not copied
 
+    // duplicate the milestone list too — names copied, status reset (a fresh run hasn't reached any of them yet)
+    const sourceMilestones = source.id === selectedId ? milestones : (await storageGet(`milestones:${source.id}`)) || [];
+    const newMilestones = sourceMilestones.map(m => ({
+      id: uid(),
+      name: m.name,
+      status: "not-started"
+    }));
+    await storageSet(`milestones:${newProduct.id}`, newMilestones);
     setSelectedId(newProduct.id);
     setTab("process");
   };
@@ -781,6 +870,36 @@ function NPITracker({
     const next = [...template];
     [next[idx], next[targetIdx]] = [next[targetIdx], next[idx]];
     persistTemplate(next);
+  };
+
+  // ---- key-milestone template CRUD (applies to future new products only) ----
+  const persistMilestoneTemplate = async list => {
+    setMilestoneTemplate(list);
+    const ok = await storageSet("template:milestones", list);
+    if (!ok) setSaveError("里程碑範本儲存失敗，請重試");
+  };
+  const addMilestoneTemplateItem = () => {
+    persistMilestoneTemplate([...milestoneTemplate, {
+      id: uid(),
+      name: ""
+    }]);
+  };
+  const updateMilestoneTemplateItem = (id, field, value) => {
+    persistMilestoneTemplate(milestoneTemplate.map(t => t.id === id ? {
+      ...t,
+      [field]: value
+    } : t));
+  };
+  const deleteMilestoneTemplateItem = id => {
+    persistMilestoneTemplate(milestoneTemplate.filter(t => t.id !== id));
+  };
+  const moveMilestoneTemplateItem = (id, direction) => {
+    const idx = milestoneTemplate.findIndex(t => t.id === id);
+    const targetIdx = idx + direction;
+    if (idx === -1 || targetIdx < 0 || targetIdx >= milestoneTemplate.length) return;
+    const next = [...milestoneTemplate];
+    [next[idx], next[targetIdx]] = [next[targetIdx], next[idx]];
+    persistMilestoneTemplate(next);
   };
   const ganttRange = useMemo(() => {
     const allDates = [];
@@ -1058,6 +1177,8 @@ function NPITracker({
     stats: productStats,
     tracking: trackingItems,
     allTodos: allTodos,
+    milestoneStatus: milestoneStatus,
+    milestoneTemplate: milestoneTemplate,
     onSelect: id => {
       setSelectedId(id);
       setTab("process");
@@ -1132,7 +1253,18 @@ function NPITracker({
     }
   }, /*#__PURE__*/React.createElement(HeaderGantt, {
     stages: stages
-  })))), /*#__PURE__*/React.createElement("div", {
+  }))), /*#__PURE__*/React.createElement("div", {
+    className: "mt-4 pt-4",
+    style: {
+      borderTop: `1px solid ${C.border}`
+    }
+  }, /*#__PURE__*/React.createElement(MilestonePanel, {
+    milestones: milestones,
+    onAdd: addMilestone,
+    onUpdate: updateMilestone,
+    onDelete: deleteMilestone,
+    onReorder: moveMilestone
+  }))), /*#__PURE__*/React.createElement("div", {
     className: "flex px-5",
     style: {
       background: C.panelBg,
@@ -1225,6 +1357,11 @@ function NPITracker({
     onUpdate: updateTemplateItem,
     onDelete: deleteTemplateItem,
     onReorder: moveTemplateItem,
+    milestoneTemplate: milestoneTemplate,
+    onAddMilestone: addMilestoneTemplateItem,
+    onUpdateMilestone: updateMilestoneTemplateItem,
+    onDeleteMilestone: deleteMilestoneTemplateItem,
+    onReorderMilestone: moveMilestoneTemplateItem,
     onClose: () => setShowTemplateSettings(false)
   }), confirmDeleteProduct && /*#__PURE__*/React.createElement(ConfirmModal, {
     title: "刪除產品計劃",
@@ -1270,6 +1407,8 @@ function DashboardView({
   stats,
   tracking,
   allTodos,
+  milestoneStatus,
+  milestoneTemplate,
   onSelect,
   onSelectTodo
 }) {
@@ -1408,7 +1547,129 @@ function DashboardView({
       fontSize: 12,
       color: "#2F6F6B"
     }
-  }, "目前沒有逾期或即將到期（3天內）的流程。")), viewMode === "stage" ? /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+  }, "目前沒有逾期或即將到期（3天內）的流程。")), /*#__PURE__*/React.createElement("div", {
+    className: "mb-6"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      border: "1px solid #E3E4E0",
+      borderRadius: 10,
+      background: "#fff",
+      overflow: "hidden"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "px-4 py-2.5",
+    style: {
+      borderBottom: "1px solid #F0F1EC"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 13,
+      fontWeight: 700,
+      color: "#1B2430"
+    }
+  }, "關鍵里程碑總覽")), /*#__PURE__*/React.createElement("div", {
+    className: "px-4 pt-2",
+    style: {
+      fontSize: 11,
+      color: "#8A9099"
+    }
+  }, "資料來自每個產品自己維護的「重要里程碑」清單，用名稱跟這裡的欄位比對——如果某個產品把項目改了名字或刪除，該欄會直接留白，不會自動對應成同一件事。"), /*#__PURE__*/React.createElement("div", {
+    className: "overflow-x-auto px-4 pb-4 pt-2"
+  }, /*#__PURE__*/React.createElement("table", {
+    style: {
+      width: "100%",
+      borderCollapse: "collapse",
+      minWidth: 480
+    }
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    style: {
+      textAlign: "left",
+      padding: "6px 8px",
+      fontSize: 11,
+      color: "#8A9099",
+      fontWeight: 600
+    }
+  }, "產品"), milestoneTemplate.map(t => /*#__PURE__*/React.createElement("th", {
+    key: t.id,
+    style: {
+      textAlign: "left",
+      padding: "6px 8px",
+      fontSize: 11,
+      color: "#8A9099",
+      fontWeight: 600
+    }
+  }, t.name || "（未命名）")))), /*#__PURE__*/React.createElement("tbody", null, products.map(p => {
+    const byName = milestoneStatus[p.id] || {};
+    return /*#__PURE__*/React.createElement("tr", {
+      key: p.id,
+      style: {
+        borderTop: "1px solid #F0F1EC"
+      }
+    }, /*#__PURE__*/React.createElement("td", {
+      style: {
+        padding: "8px"
+      }
+    }, /*#__PURE__*/React.createElement("button", {
+      onClick: () => onSelect(p.id),
+      style: {
+        fontSize: 13,
+        fontWeight: 600,
+        color: "#1B2430",
+        textAlign: "left"
+      }
+    }, p.companyPN || p.name || "未命名產品")), milestoneTemplate.map(t => {
+      const st = byName[t.name];
+      if (!st) {
+        // this product has no entry matching this column — leave it blank rather
+        // than a badge, per how the user wants "not applicable" represented.
+        return /*#__PURE__*/React.createElement("td", {
+          key: t.id,
+          style: {
+            padding: "8px",
+            fontSize: 12,
+            color: "#D9DBD5"
+          }
+        }, "－");
+      }
+      const cfg = {
+        "completed": {
+          label: "已完成",
+          color: "#2F6F6B",
+          bg: "#EAF5F3"
+        },
+        "in-progress": {
+          label: "進行中",
+          color: "#B8790A",
+          bg: "#FBF2E2"
+        },
+        "not-started": {
+          label: "尚未開始",
+          color: "#8A9099",
+          bg: "#F4F5F2"
+        }
+      }[st] || {
+        label: st,
+        color: "#8A9099",
+        bg: "#F4F5F2"
+      };
+      return /*#__PURE__*/React.createElement("td", {
+        key: t.id,
+        style: {
+          padding: "8px"
+        }
+      }, /*#__PURE__*/React.createElement("span", {
+        className: "px-2 py-0.5",
+        style: {
+          fontSize: 11,
+          fontWeight: 600,
+          borderRadius: 4,
+          color: cfg.color,
+          background: cfg.bg,
+          whiteSpace: "nowrap"
+        }
+      }, cfg.label));
+    }));
+  })))))), viewMode === "stage" ? /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "mb-3",
     style: {
       fontSize: 11,
@@ -1743,6 +2004,129 @@ function HeaderGantt({
     }
   }), m.label))));
 }
+const MILESTONE_STATUS_CYCLE = ["not-started", "in-progress", "completed"];
+const MILESTONE_STATUS_META = {
+  "not-started": {
+    label: "尚未開始",
+    color: "#8A9099",
+    bg: "#F4F5F2"
+  },
+  "in-progress": {
+    label: "進行中",
+    color: "#B8790A",
+    bg: "#FBF2E2"
+  },
+  "completed": {
+    label: "已完成",
+    color: "#2F6F6B",
+    bg: "#EAF5F3"
+  }
+};
+function MilestonePanel({
+  milestones,
+  onAdd,
+  onUpdate,
+  onDelete,
+  onReorder
+}) {
+  const cycleStatus = m => {
+    const idx = MILESTONE_STATUS_CYCLE.indexOf(m.status || "not-started");
+    onUpdate(m.id, "status", MILESTONE_STATUS_CYCLE[(idx + 1) % MILESTONE_STATUS_CYCLE.length]);
+  };
+  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-between mb-2.5"
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12,
+      fontWeight: 700,
+      color: "#1B2430"
+    }
+  }, "重要里程碑"), /*#__PURE__*/React.createElement("button", {
+    onClick: onAdd,
+    className: "flex items-center gap-1",
+    style: {
+      fontSize: 12,
+      color: "#5B6169"
+    }
+  }, /*#__PURE__*/React.createElement(Plus, {
+    size: 13
+  }), " 新增里程碑")), milestones.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: "#B4B7AF"
+    }
+  }, "尚無里程碑項目，點「新增里程碑」開始建立。") : /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-wrap",
+    style: {
+      gap: 8
+    }
+  }, milestones.map((m, i) => {
+    const meta = MILESTONE_STATUS_META[m.status || "not-started"];
+    return /*#__PURE__*/React.createElement("div", {
+      key: m.id,
+      className: "flex items-center gap-1.5",
+      style: {
+        border: "1px solid #E3E4E0",
+        borderRadius: 8,
+        padding: "5px 6px",
+        background: "#fff"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "flex flex-col shrink-0",
+      style: {
+        lineHeight: 0
+      }
+    }, /*#__PURE__*/React.createElement("button", {
+      onClick: () => onReorder(m.id, -1),
+      disabled: i === 0,
+      style: {
+        color: i === 0 ? "#E3E4E0" : "#8A9099"
+      }
+    }, /*#__PURE__*/React.createElement(ChevronUp, {
+      size: 10
+    })), /*#__PURE__*/React.createElement("button", {
+      onClick: () => onReorder(m.id, 1),
+      disabled: i === milestones.length - 1,
+      style: {
+        color: i === milestones.length - 1 ? "#E3E4E0" : "#8A9099"
+      }
+    }, /*#__PURE__*/React.createElement(ChevronDown, {
+      size: 10
+    }))), /*#__PURE__*/React.createElement("input", {
+      value: m.name,
+      placeholder: "里程碑名稱",
+      onChange: e => onUpdate(m.id, "name", e.target.value),
+      style: {
+        border: "none",
+        outline: "none",
+        fontSize: 13,
+        fontWeight: 600,
+        color: "#1B2430",
+        width: 92
+      }
+    }), /*#__PURE__*/React.createElement("button", {
+      onClick: () => cycleStatus(m),
+      className: "px-2 py-0.5 shrink-0",
+      style: {
+        fontSize: 11,
+        fontWeight: 600,
+        borderRadius: 4,
+        color: meta.color,
+        background: meta.bg,
+        whiteSpace: "nowrap"
+      },
+      title: "點擊切換狀態"
+    }, meta.label), /*#__PURE__*/React.createElement("button", {
+      onClick: () => onDelete(m.id),
+      className: "shrink-0",
+      style: {
+        color: "#B4B7AF"
+      }
+    }, /*#__PURE__*/React.createElement(Trash2, {
+      size: 12
+    })));
+  })));
+}
 function ZoomableImage({
   src,
   size = 64,
@@ -1882,8 +2266,14 @@ function TemplateSettingsModal({
   onUpdate,
   onDelete,
   onReorder,
+  milestoneTemplate,
+  onAddMilestone,
+  onUpdateMilestone,
+  onDeleteMilestone,
+  onReorderMilestone,
   onClose
 }) {
+  const [section, setSection] = useState("stages"); // "stages" | "milestones"
   return /*#__PURE__*/React.createElement("div", {
     className: "flex items-center justify-center p-4",
     style: {
@@ -1909,22 +2299,49 @@ function TemplateSettingsModal({
     style: {
       fontSize: 17
     }
-  }, "流程範本設定"), /*#__PURE__*/React.createElement("button", {
+  }, "範本設定"), /*#__PURE__*/React.createElement("button", {
     onClick: onClose
   }, /*#__PURE__*/React.createElement(X, {
     size: 18,
     color: "#8A9099"
   }))), /*#__PURE__*/React.createElement("div", {
+    className: "flex shrink-0 mt-3",
+    style: {
+      borderBottom: "1px solid #EDEEEA"
+    }
+  }, [{
+    k: "stages",
+    label: "流程範本"
+  }, {
+    k: "milestones",
+    label: "重要里程碑範本"
+  }].map(t => /*#__PURE__*/React.createElement("button", {
+    key: t.k,
+    onClick: () => setSection(t.k),
+    className: "px-3 py-2",
+    style: {
+      fontSize: 13,
+      fontWeight: 500,
+      borderBottom: `2px solid ${section === t.k ? "#1B2430" : "transparent"}`,
+      color: section === t.k ? "#1B2430" : "#8A9099"
+    }
+  }, t.label))), /*#__PURE__*/React.createElement("div", {
     className: "overflow-y-auto mt-3",
     style: {
       flex: 1
     }
-  }, /*#__PURE__*/React.createElement(TemplateEditor, {
+  }, section === "stages" ? /*#__PURE__*/React.createElement(TemplateEditor, {
     template: template,
     onAdd: onAdd,
     onUpdate: onUpdate,
     onDelete: onDelete,
     onReorder: onReorder
+  }) : /*#__PURE__*/React.createElement(MilestoneTemplateEditor, {
+    template: milestoneTemplate,
+    onAdd: onAddMilestone,
+    onUpdate: onUpdateMilestone,
+    onDelete: onDeleteMilestone,
+    onReorder: onReorderMilestone
   })), /*#__PURE__*/React.createElement("div", {
     className: "flex justify-end mt-4 pt-4 shrink-0",
     style: {
@@ -1940,6 +2357,131 @@ function TemplateSettingsModal({
       borderRadius: 6
     }
   }, "關閉"))));
+}
+function MilestoneTemplateEditor({
+  template,
+  onAdd,
+  onUpdate,
+  onDelete,
+  onReorder
+}) {
+  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "mb-3"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 14,
+      fontWeight: 600
+    }
+  }, "預設重要里程碑"), /*#__PURE__*/React.createElement("div", {
+    className: "mt-1",
+    style: {
+      fontSize: 11,
+      color: "#8A9099"
+    }
+  }, "之後「新增產品計劃」時，會自動帶入這裡設定的里程碑清單當起點。修改這裡不會影響已經建立好的產品——那些產品的里程碑要改，請到各自的頁面調整。 總覽儀表板的「關鍵里程碑總覽」欄位也是照這裡的名稱來對應，改名字會影響既有產品能不能對得上。")), /*#__PURE__*/React.createElement("div", {
+    className: "flex justify-end mb-3"
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: onAdd,
+    className: "flex items-center gap-1 px-3 py-1.5",
+    style: {
+      fontSize: 12,
+      color: "#fff",
+      background: "#1B2430",
+      borderRadius: 6
+    }
+  }, /*#__PURE__*/React.createElement(Plus, {
+    size: 13
+  }), " 新增里程碑項目")), template.length === 0 ? /*#__PURE__*/React.createElement(EmptyState, {
+    text: "範本是空的，新增產品計劃時就不會自動帶入任何里程碑。點「新增里程碑項目」開始建立。"
+  }) : /*#__PURE__*/React.createElement("div", {
+    style: {
+      border: "1px solid #E3E4E0",
+      borderRadius: 8,
+      overflow: "auto",
+      maxWidth: "100%"
+    }
+  }, /*#__PURE__*/React.createElement("table", {
+    style: {
+      borderCollapse: "collapse",
+      width: "100%",
+      minWidth: 320,
+      fontSize: 12
+    }
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", {
+    style: {
+      background: "#F0F1EC"
+    }
+  }, ["#", "里程碑名稱", ""].map((h, i) => /*#__PURE__*/React.createElement("th", {
+    key: i,
+    className: "uppercase tracking-wide",
+    style: {
+      ...thStyle,
+      textAlign: i === 0 ? "center" : "left"
+    }
+  }, h)))), /*#__PURE__*/React.createElement("tbody", null, template.map((t, i) => /*#__PURE__*/React.createElement("tr", {
+    key: t.id,
+    style: {
+      background: i % 2 ? "#fff" : "#FAFAF8",
+      borderTop: "1px solid #E3E4E0"
+    }
+  }, /*#__PURE__*/React.createElement("td", {
+    style: {
+      ...tdStyle,
+      textAlign: "center"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-center gap-1"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "mono",
+    style: {
+      fontSize: 12,
+      color: "#8A9099",
+      minWidth: 14,
+      textAlign: "right"
+    }
+  }, i + 1), /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-col"
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => onReorder(t.id, -1),
+    disabled: i === 0,
+    style: {
+      color: i === 0 ? "#E3E4E0" : "#8A9099",
+      lineHeight: 0
+    }
+  }, /*#__PURE__*/React.createElement(ChevronUp, {
+    size: 11
+  })), /*#__PURE__*/React.createElement("button", {
+    onClick: () => onReorder(t.id, 1),
+    disabled: i === template.length - 1,
+    style: {
+      color: i === template.length - 1 ? "#E3E4E0" : "#8A9099",
+      lineHeight: 0
+    }
+  }, /*#__PURE__*/React.createElement(ChevronDown, {
+    size: 11
+  }))))), /*#__PURE__*/React.createElement("td", {
+    style: {
+      ...tdStyle,
+      minWidth: 200
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    value: t.name,
+    placeholder: "里程碑名稱",
+    onChange: e => onUpdate(t.id, "name", e.target.value),
+    style: cellInput
+  })), /*#__PURE__*/React.createElement("td", {
+    style: {
+      ...tdStyle,
+      textAlign: "center"
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => onDelete(t.id),
+    style: {
+      color: "#B4B7AF"
+    }
+  }, /*#__PURE__*/React.createElement(Trash2, {
+    size: 14
+  })))))))));
 }
 function NewProductTemplateStep({
   productName,
