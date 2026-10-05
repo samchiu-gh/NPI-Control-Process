@@ -388,6 +388,28 @@ function NPITracker({
       const list = await storageGet("products");
       setProducts(list || []);
       setLoading(false);
+
+      // one-time (but self-healing) backfill: make sure every product has an entry for
+      // every item currently in the shared milestone template, so "重要里程碑" always shows
+      // all of them without anyone having to add them by hand. Only ADDS missing items
+      // (as 尚未開始) — never removes or changes a status someone already set, and if a
+      // product intentionally doesn't need one, the fix is to leave it at 尚未開始, not
+      // delete it (deleting it here will just make it reappear next time the app loads).
+      const msTemplate = (await storageGet("template:milestones")) || DEFAULT_MILESTONE_TEMPLATE;
+      for (const p of list || []) {
+        const existing = (await storageGet(`milestones:${p.id}`)) || [];
+        const existingNames = new Set(existing.map(m => m.name));
+        const missing = msTemplate.filter(t => t.name && !existingNames.has(t.name));
+        if (missing.length > 0) {
+          const merged = [...existing, ...missing.map(t => ({
+            id: uid(),
+            name: t.name,
+            status: "not-started"
+          }))];
+          await storageSet(`milestones:${p.id}`, merged);
+          if (p.id === selectedId) setMilestones(merged);
+        }
+      }
     })();
   }, []);
   useEffect(() => {
