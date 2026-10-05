@@ -1425,6 +1425,27 @@ const STATUS_META = {
     label: "尚未開始"
   }
 };
+
+// same visual language as STATUS_META / HeaderGantt above, reused for the dashboard's
+// key-milestone bars so both Gantt-style views read consistently.
+const MILESTONE_GANTT_META = {
+  "completed": {
+    color: "#2F6F6B",
+    label: "已完成"
+  },
+  "in-progress": {
+    color: "#C98A2E",
+    label: "進行中"
+  },
+  "not-started": {
+    color: "#D9DBD5",
+    label: "尚未開始"
+  },
+  "not-present": {
+    color: "#F0F1EC",
+    label: "此產品沒有這項"
+  }
+};
 function DashboardView({
   products,
   stats,
@@ -1597,102 +1618,94 @@ function DashboardView({
       color: "#8A9099"
     }
   }, "資料來自每個產品自己維護的「重要里程碑」清單，用名稱跟這裡的欄位比對——如果某個產品把項目改了名字或刪除，該欄會直接留白，不會自動對應成同一件事。"), /*#__PURE__*/React.createElement("div", {
-    className: "overflow-x-auto px-4 pb-4 pt-2"
-  }, /*#__PURE__*/React.createElement("table", {
+    className: "overflow-x-auto px-4 pb-4 pt-3"
+  }, /*#__PURE__*/React.createElement("div", {
     style: {
-      width: "100%",
-      borderCollapse: "collapse",
       minWidth: 480
     }
-  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center mb-2",
     style: {
-      textAlign: "left",
-      padding: "6px 8px",
-      fontSize: 11,
-      color: "#8A9099",
-      fontWeight: 600
+      gap: 12
     }
-  }, "產品"), milestoneTemplate.map(t => /*#__PURE__*/React.createElement("th", {
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 130,
+      flexShrink: 0
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "flex-1 flex"
+  }, milestoneTemplate.map(t => /*#__PURE__*/React.createElement("div", {
     key: t.id,
+    className: "text-center",
     style: {
-      textAlign: "left",
-      padding: "6px 8px",
+      flex: 1,
       fontSize: 11,
       color: "#8A9099",
       fontWeight: 600
     }
-  }, t.name || "（未命名）")))), /*#__PURE__*/React.createElement("tbody", null, products.map(p => {
+  }, t.name || "（未命名）")))), /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-col",
+    style: {
+      gap: 6
+    }
+  }, products.map(p => {
     const byName = milestoneStatus[p.id] || {};
-    return /*#__PURE__*/React.createElement("tr", {
+    return /*#__PURE__*/React.createElement("button", {
       key: p.id,
-      style: {
-        borderTop: "1px solid #F0F1EC"
-      }
-    }, /*#__PURE__*/React.createElement("td", {
-      style: {
-        padding: "8px"
-      }
-    }, /*#__PURE__*/React.createElement("button", {
       onClick: () => onSelect(p.id),
+      className: "flex items-center w-full",
       style: {
-        fontSize: 13,
-        fontWeight: 600,
-        color: "#1B2430",
+        gap: 12,
         textAlign: "left"
       }
-    }, p.companyPN || p.name || "未命名產品")), milestoneTemplate.map(t => {
-      const st = byName[t.name];
-      if (!st) {
-        // this product has no entry matching this column — leave it blank rather
-        // than a badge, per how the user wants "not applicable" represented.
-        return /*#__PURE__*/React.createElement("td", {
-          key: t.id,
-          style: {
-            padding: "8px",
-            fontSize: 12,
-            color: "#D9DBD5"
-          }
-        }, "－");
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "truncate shrink-0",
+      style: {
+        width: 130,
+        fontSize: 13,
+        fontWeight: 600,
+        color: "#1B2430"
       }
-      const cfg = {
-        "completed": {
-          label: "已完成",
-          color: "#2F6F6B",
-          bg: "#EAF5F3"
-        },
-        "in-progress": {
-          label: "進行中",
-          color: "#B8790A",
-          bg: "#FBF2E2"
-        },
-        "not-started": {
-          label: "尚未開始",
-          color: "#8A9099",
-          bg: "#F4F5F2"
-        }
-      }[st] || {
-        label: st,
-        color: "#8A9099",
-        bg: "#F4F5F2"
-      };
-      return /*#__PURE__*/React.createElement("td", {
+    }, p.companyPN || p.name || "未命名產品"), /*#__PURE__*/React.createElement("div", {
+      className: "flex-1 flex",
+      style: {
+        gap: 2,
+        height: 20
+      }
+    }, milestoneTemplate.map(t => {
+      const st = byName[t.name];
+      const cfg = MILESTONE_GANTT_META[st] || MILESTONE_GANTT_META["not-present"];
+      const title = `${t.name || "（未命名）"}：${cfg.label}`;
+      return /*#__PURE__*/React.createElement("div", {
         key: t.id,
+        title: title,
         style: {
-          padding: "8px"
+          flex: 1,
+          minWidth: 4,
+          background: cfg.color,
+          borderRadius: 3
         }
-      }, /*#__PURE__*/React.createElement("span", {
-        className: "px-2 py-0.5",
-        style: {
-          fontSize: 11,
-          fontWeight: 600,
-          borderRadius: 4,
-          color: cfg.color,
-          background: cfg.bg,
-          whiteSpace: "nowrap"
-        }
-      }, cfg.label));
-    }));
-  })))))), viewMode === "stage" ? /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+      });
+    })));
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-3 flex-wrap mt-3",
+    style: {
+      fontSize: 10,
+      color: "#8A9099"
+    }
+  }, Object.entries(MILESTONE_GANTT_META).map(([k, m]) => /*#__PURE__*/React.createElement("span", {
+    key: k,
+    className: "flex items-center gap-1"
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "inline-block",
+      width: 8,
+      height: 8,
+      borderRadius: 2,
+      background: m.color
+    }
+  }), m.label))))))), viewMode === "stage" ? /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "mb-3",
     style: {
       fontSize: 11,
