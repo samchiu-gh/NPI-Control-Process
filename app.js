@@ -663,10 +663,22 @@ function NPITracker({
     }]);
   };
   const updateMilestone = (id, field, value) => {
-    persistMilestones(milestones.map(m => m.id === id ? {
+    let next = milestones.map(m => m.id === id ? {
       ...m,
       [field]: value
-    } : m));
+    } : m);
+    // cascading rule: reaching a milestone implies every earlier one (in this product's own
+    // list order) is also done — so marking one 進行中/已完成 auto-completes anything before it
+    // that isn't already 已完成. This only pushes status forward, never back: downgrading a
+    // later milestone does NOT un-complete earlier ones.
+    if (field === "status" && (value === "in-progress" || value === "completed")) {
+      const idx = next.findIndex(m => m.id === id);
+      next = next.map((m, i) => i < idx && m.status !== "completed" ? {
+        ...m,
+        status: "completed"
+      } : m);
+    }
+    persistMilestones(next);
   };
   const deleteMilestone = id => {
     persistMilestones(milestones.filter(m => m.id !== id));
@@ -1428,22 +1440,32 @@ const STATUS_META = {
 
 // same visual language as STATUS_META / HeaderGantt above, reused for the dashboard's
 // key-milestone bars so both Gantt-style views read consistently.
+// "completed" is deliberately a different hue from STATUS_META.done's teal — this view
+// wanted its own stronger "done" color rather than matching the process-stage Gantt above.
 const MILESTONE_GANTT_META = {
   "completed": {
-    color: "#2F6F6B",
-    label: "已完成"
+    color: "#1F8A54",
+    textColor: "#fff",
+    label: "已完成",
+    blockLabel: "已完成"
   },
   "in-progress": {
     color: "#C98A2E",
-    label: "進行中"
+    textColor: "#fff",
+    label: "進行中",
+    blockLabel: "進行中"
   },
   "not-started": {
     color: "#D9DBD5",
-    label: "尚未開始"
+    textColor: "#5B6169",
+    label: "尚未開始",
+    blockLabel: "尚未開始"
   },
   "not-present": {
     color: "#F0F1EC",
-    label: "此產品沒有這項"
+    textColor: "#B4B7AF",
+    label: "此產品沒有這項",
+    blockLabel: "－"
   }
 };
 function DashboardView({
@@ -1621,7 +1643,7 @@ function DashboardView({
     className: "overflow-x-auto px-4 pb-4 pt-3"
   }, /*#__PURE__*/React.createElement("div", {
     style: {
-      minWidth: 480
+      minWidth: 560
     }
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex items-center mb-2",
@@ -1671,7 +1693,7 @@ function DashboardView({
       className: "flex-1 flex",
       style: {
         gap: 2,
-        height: 20
+        height: 26
       }
     }, milestoneTemplate.map(t => {
       const st = byName[t.name];
@@ -1680,13 +1702,19 @@ function DashboardView({
       return /*#__PURE__*/React.createElement("div", {
         key: t.id,
         title: title,
+        className: "flex items-center justify-center",
         style: {
           flex: 1,
           minWidth: 4,
           background: cfg.color,
-          borderRadius: 3
+          borderRadius: 3,
+          fontSize: 10,
+          fontWeight: 700,
+          color: cfg.textColor,
+          whiteSpace: "nowrap",
+          overflow: "hidden"
         }
-      });
+      }, cfg.blockLabel);
     })));
   })), /*#__PURE__*/React.createElement("div", {
     className: "flex items-center gap-3 flex-wrap mt-3",
