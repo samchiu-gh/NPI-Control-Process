@@ -756,13 +756,14 @@ function NPITracker({
       setShowTemplateStep(true);
     }
   };
-  const finalizeNewProduct = async () => {
+  // stageList = the per-case working copy picked in step 2 (the shared template itself is untouched)
+  const finalizeNewProduct = async stageList => {
     const np = {
       ...pendingNewProduct,
       id: uid()
     };
     await persistProducts([...products, np]);
-    await storageSet(`stages:${np.id}`, instantiateStages(template));
+    await storageSet(`stages:${np.id}`, instantiateStages(stageList || template));
     await storageSet(`samples:${np.id}`, []);
     await storageSet(`milestones:${np.id}`, instantiateMilestones(milestoneTemplate));
     setSelectedId(np.id);
@@ -942,6 +943,9 @@ function NPITracker({
     }));
     persistTemplate(cleaned);
   };
+  const restoreDefaultTemplate = () => persistTemplate(DEFAULT_STAGE_TEMPLATE.map(t => ({
+    ...t
+  })));
   const moveTemplateItem = (id, direction) => {
     const idx = template.findIndex(t => t.id === id);
     const targetIdx = idx + direction;
@@ -1422,10 +1426,6 @@ function NPITracker({
   }), showTemplateStep && pendingNewProduct && /*#__PURE__*/React.createElement(NewProductTemplateStep, {
     productName: pendingNewProduct.name || "未命名產品",
     template: template,
-    onAdd: addTemplateItem,
-    onUpdate: updateTemplateItem,
-    onDelete: deleteTemplateItem,
-    onReorder: moveTemplateItem,
     onBack: () => {
       setShowTemplateStep(false);
       setShowProductForm(true);
@@ -1437,6 +1437,7 @@ function NPITracker({
     onUpdate: updateTemplateItem,
     onDelete: deleteTemplateItem,
     onReorder: moveTemplateItem,
+    onRestoreDefault: restoreDefaultTemplate,
     milestoneTemplate: milestoneTemplate,
     onAddMilestone: addMilestoneTemplateItem,
     onUpdateMilestone: updateMilestoneTemplateItem,
@@ -2439,6 +2440,7 @@ function TemplateSettingsModal({
   onUpdate,
   onDelete,
   onReorder,
+  onRestoreDefault,
   milestoneTemplate,
   onAddMilestone,
   onUpdateMilestone,
@@ -2447,6 +2449,7 @@ function TemplateSettingsModal({
   onClose
 }) {
   const [section, setSection] = useState("stages"); // "stages" | "milestones"
+  const [confirmRestore, setConfirmRestore] = useState(false);
   return /*#__PURE__*/React.createElement("div", {
     className: "flex items-center justify-center p-4",
     style: {
@@ -2503,13 +2506,48 @@ function TemplateSettingsModal({
     style: {
       flex: 1
     }
-  }, section === "stages" ? /*#__PURE__*/React.createElement(TemplateEditor, {
+  }, section === "stages" ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-end gap-2 mb-2"
+  }, confirmRestore ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: "#C1443C"
+    }
+  }, "會用系統內建的 14 項預設流程整個覆蓋目前範本，確定嗎？"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => {
+      onRestoreDefault();
+      setConfirmRestore(false);
+    },
+    className: "px-2 py-1",
+    style: {
+      fontSize: 11,
+      color: "#fff",
+      background: "#C1443C",
+      borderRadius: 5
+    }
+  }, "確定還原"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setConfirmRestore(false),
+    className: "px-2 py-1",
+    style: {
+      fontSize: 11,
+      color: "#5B6169",
+      border: "1px solid #D9DBD5",
+      borderRadius: 5
+    }
+  }, "取消")) : /*#__PURE__*/React.createElement("button", {
+    onClick: () => setConfirmRestore(true),
+    style: {
+      fontSize: 11,
+      color: "#8A9099",
+      textDecoration: "underline"
+    }
+  }, "還原成系統預設流程範本")), /*#__PURE__*/React.createElement(TemplateEditor, {
     template: template,
     onAdd: onAdd,
     onUpdate: onUpdate,
     onDelete: onDelete,
     onReorder: onReorder
-  }) : /*#__PURE__*/React.createElement(MilestoneTemplateEditor, {
+  })) : /*#__PURE__*/React.createElement(MilestoneTemplateEditor, {
     template: milestoneTemplate,
     onAdd: onAddMilestone,
     onUpdate: onUpdateMilestone,
@@ -2659,13 +2697,38 @@ function MilestoneTemplateEditor({
 function NewProductTemplateStep({
   productName,
   template,
-  onAdd,
-  onUpdate,
-  onDelete,
-  onReorder,
   onBack,
   onConfirm
 }) {
+  // per-case working copy: deleting/adding/reordering here only shapes THIS new product.
+  // The shared template (gear icon in the sidebar) is never modified from this step.
+  const [list, setList] = useState(() => template.map(t => ({
+    ...t,
+    dependsOn: [...(t.dependsOn || [])]
+  })));
+  const add = () => setList(l => [...l, {
+    id: uid(),
+    name: "",
+    unit: "",
+    form: "",
+    dependsOn: []
+  }]);
+  const update = (id, field, value) => setList(l => l.map(t => t.id === id ? {
+    ...t,
+    [field]: value
+  } : t));
+  const del = id => setList(l => l.filter(t => t.id !== id).map(t => ({
+    ...t,
+    dependsOn: (t.dependsOn || []).filter(d => d !== id)
+  })));
+  const move = (id, dir) => setList(l => {
+    const idx = l.findIndex(t => t.id === id);
+    const to = idx + dir;
+    if (idx === -1 || to < 0 || to >= l.length) return l;
+    const next = [...l];
+    [next[idx], next[to]] = [next[to], next[idx]];
+    return next;
+  });
   return /*#__PURE__*/React.createElement("div", {
     className: "flex items-center justify-center p-4",
     style: {
@@ -2703,11 +2766,12 @@ function NewProductTemplateStep({
       flex: 1
     }
   }, /*#__PURE__*/React.createElement(TemplateEditor, {
-    template: template,
-    onAdd: onAdd,
-    onUpdate: onUpdate,
-    onDelete: onDelete,
-    onReorder: onReorder
+    template: list,
+    onAdd: add,
+    onUpdate: update,
+    onDelete: del,
+    onReorder: move,
+    caseMode: true
   })), /*#__PURE__*/React.createElement("div", {
     className: "flex items-center justify-between mt-4 pt-4 shrink-0",
     style: {
@@ -2723,7 +2787,7 @@ function NewProductTemplateStep({
       borderRadius: 6
     }
   }, "上一步"), /*#__PURE__*/React.createElement("button", {
-    onClick: onConfirm,
+    onClick: () => onConfirm(list),
     className: "px-4 py-2",
     style: {
       fontSize: 14,
@@ -3868,7 +3932,8 @@ function TemplateEditor({
   onAdd,
   onUpdate,
   onDelete,
-  onReorder
+  onReorder,
+  caseMode
 }) {
   const [depModalId, setDepModalId] = useState(null);
   const depModalItem = template.find(t => t.id === depModalId) || null;
@@ -3885,13 +3950,13 @@ function TemplateEditor({
       fontSize: 14,
       fontWeight: 600
     }
-  }, "預設流程範本"), /*#__PURE__*/React.createElement("div", {
+  }, caseMode ? "本案要使用的流程" : "預設流程範本"), /*#__PURE__*/React.createElement("div", {
     className: "mt-1",
     style: {
       fontSize: 11,
       color: "#8A9099"
     }
-  }, "之後「新增產品計劃」時，會自動帶入這裡設定的流程清單當起點。修改這裡不會影響已經建立好的產品——那些產品的流程要改，請到各自的「產品流程」分頁調整。")), /*#__PURE__*/React.createElement("div", {
+  }, caseMode ? "這裡預設帶入公版範本的全部流程，刪除、新增或調整順序都只影響這一個新案子，公版範本不會被改動。要永久修改公版，請到側邊欄的齒輪圖示。" : "之後「新增產品計劃」時，會自動帶入這裡設定的流程清單當起點。修改這裡不會影響已經建立好的產品——那些產品的流程要改，請到各自的「產品流程」分頁調整。")), /*#__PURE__*/React.createElement("div", {
     className: "flex justify-end mb-3"
   }, /*#__PURE__*/React.createElement("button", {
     onClick: onAdd,
@@ -3904,7 +3969,7 @@ function TemplateEditor({
     }
   }, /*#__PURE__*/React.createElement(Plus, {
     size: 13
-  }), " 新增範本項目")), template.length === 0 ? /*#__PURE__*/React.createElement(EmptyState, {
+  }), " ", caseMode ? "新增流程" : "新增範本項目")), template.length === 0 ? /*#__PURE__*/React.createElement(EmptyState, {
     text: "範本是空的，新增產品計劃時就不會自動帶入任何流程。點「新增範本項目」開始建立。"
   }) : /*#__PURE__*/React.createElement("div", {
     style: {
