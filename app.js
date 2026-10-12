@@ -145,17 +145,50 @@ function forecastDelay(stageId, stages, memo = {}) {
 // then freely add/rename/delete its own items afterward.
 const DEFAULT_MILESTONE_TEMPLATE = [{
   id: "m1",
-  name: "產品測試"
+  name: "樣品取得"
 }, {
   id: "m2",
-  name: "小批量試單"
+  name: "功能及可靠度測試"
 }, {
   id: "m3",
-  name: "技術移轉"
+  name: "小批量試單"
 }, {
   id: "m4",
-  name: "結案"
+  name: "技術移轉"
 }];
+
+// one-time migration (2026-10) from the old set (產品測試 / 小批量試單 / 技術移轉 / 結案) to the
+// current template: old 產品測試 is carried over as 功能及可靠度測試 (keeps its status), the retired
+// 結案 default is dropped, template items come first in template order, any custom items a
+// product added by hand are kept after them. Earlier template items are then auto-completed
+// if a later one is already underway (same cascade rule as clicking status by hand).
+const LEGACY_MILESTONE_RENAMES = {
+  "產品測試": "功能及可靠度測試"
+};
+const LEGACY_MILESTONE_DROP = ["結案"];
+function migrateMilestoneList(existing, template) {
+  const renamed = existing.map(m => ({
+    ...m,
+    name: LEGACY_MILESTONE_RENAMES[m.name] || m.name
+  })).filter(m => !LEGACY_MILESTONE_DROP.includes(m.name));
+  const byName = new Map(renamed.map(m => [m.name, m]));
+  const templateNames = new Set(template.map(t => t.name));
+  const head = template.map(t => byName.get(t.name) || {
+    id: uid(),
+    name: t.name,
+    status: "not-started"
+  });
+  const extras = renamed.filter(m => !templateNames.has(m.name));
+  let lastReached = -1;
+  head.forEach((m, i) => {
+    if (m.status === "in-progress" || m.status === "completed") lastReached = i;
+  });
+  const fixedHead = head.map((m, i) => i < lastReached && m.status !== "completed" ? {
+    ...m,
+    status: "completed"
+  } : m);
+  return [...fixedHead, ...extras];
+}
 
 // turns a milestone template into real per-product records — fresh ids, status reset.
 function instantiateMilestones(template) {
@@ -349,8 +382,6 @@ function NPITracker({
     (async () => {
       const saved = await storageGet("template:stages");
       if (saved) setTemplate(saved);
-      const savedMs = await storageGet("template:milestones");
-      if (savedMs) setMilestoneTemplate(savedMs);
     })();
   }, []);
   useEffect(() => {
@@ -389,27 +420,41 @@ function NPITracker({
       setProducts(list || []);
       setLoading(false);
 
-      // one-time (but self-healing) backfill: make sure every product has an entry for
-      // every item currently in the shared milestone template, so "重要里程碑" always shows
-      // all of them without anyone having to add them by hand. Only ADDS missing items
-      // (as 尚未開始) — never removes or changes a status someone already set, and if a
-      // product intentionally doesn't need one, the fix is to leave it at 尚未開始, not
-      // delete it (deleting it here will just make it reappear next time the app loads).
-      const msTemplate = (await storageGet("template:milestones")) || DEFAULT_MILESTONE_TEMPLATE;
+      // milestone template + per-product lists. First run after the 2026-10 template change does a
+      // one-time migration (gated by a flag doc so manual reordering isn't overwritten later);
+      // every run after that is only a self-healing backfill that ADDS missing template items
+      // (as 尚未開始) and never removes or changes anything already there.
+      const migrated = await storageGet("migration:milestones-v2");
+      let msTemplate;
+      if (!migrated) {
+        msTemplate = DEFAULT_MILESTONE_TEMPLATE;
+        await storageSet("template:milestones", msTemplate);
+      } else {
+        msTemplate = (await storageGet("template:milestones")) || DEFAULT_MILESTONE_TEMPLATE;
+      }
+      setMilestoneTemplate(msTemplate);
       for (const p of list || []) {
         const existing = (await storageGet(`milestones:${p.id}`)) || [];
-        const existingNames = new Set(existing.map(m => m.name));
-        const missing = msTemplate.filter(t => t.name && !existingNames.has(t.name));
-        if (missing.length > 0) {
-          const merged = [...existing, ...missing.map(t => ({
+        let next = existing;
+        if (!migrated) {
+          next = migrateMilestoneList(existing, msTemplate);
+        } else {
+          const existingNames = new Set(existing.map(m => m.name));
+          const missing = msTemplate.filter(t => t.name && !existingNames.has(t.name));
+          if (missing.length > 0) next = [...existing, ...missing.map(t => ({
             id: uid(),
             name: t.name,
             status: "not-started"
           }))];
-          await storageSet(`milestones:${p.id}`, merged);
-          if (p.id === selectedId) setMilestones(merged);
+        }
+        if (JSON.stringify(next) !== JSON.stringify(existing)) {
+          await storageSet(`milestones:${p.id}`, next);
         }
       }
+      if (!migrated) await storageSet("migration:milestones-v2", {
+        done: true,
+        at: Date.now()
+      });
     })();
   }, []);
   useEffect(() => {
