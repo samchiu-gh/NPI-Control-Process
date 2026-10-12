@@ -2812,9 +2812,9 @@ function ProductForm({
   const [photo, setPhoto] = useState(initial?.photo || "");
   const [photoError, setPhotoError] = useState("");
   const [uploading, setUploading] = useState(false);
-  const uploadingRef = useRef(false);
+  const uploadTokenRef = useRef(0); // identifies the latest upload so a replaced/stuck one can't overwrite it
+  const uploadTaskRef = useRef(null);
   const [uploadPct, setUploadPct] = useState(0);
-  uploadingRef.current = uploading;
   const handleFile = e => {
     const file = e.target.files?.[0];
     if (file) startUpload(file);
@@ -2827,7 +2827,7 @@ function ProductForm({
     const onPaste = e => {
       const items = Array.from(e.clipboardData?.items || []);
       const imgItem = items.find(it => it.kind === "file" && it.type.startsWith("image/"));
-      if (!imgItem || uploadingRef.current) return;
+      if (!imgItem) return;
       const file = imgItem.getAsFile();
       if (!file) return;
       e.preventDefault();
@@ -2841,6 +2841,11 @@ function ProductForm({
       setPhotoError("圖片請控制在 8MB 以內");
       return;
     }
+    // a new image always wins: cancel any upload still in flight (or stuck) and ignore its callbacks
+    const token = ++uploadTokenRef.current;
+    try {
+      uploadTaskRef.current?.cancel();
+    } catch (e) {/* already finished */}
     setPhotoError("");
     setUploading(true);
     setUploadPct(0);
@@ -2850,13 +2855,18 @@ function ProductForm({
     const path = `product-photos/${uid()}-${file.name}`;
     const storageRef = ref(storage, path);
     const task = uploadBytesResumable(storageRef, file);
-    task.on("state_changed", snap => setUploadPct(Math.round(snap.bytesTransferred / snap.totalBytes * 100)), err => {
+    uploadTaskRef.current = task;
+    task.on("state_changed", snap => {
+      if (token === uploadTokenRef.current) setUploadPct(Math.round(snap.bytesTransferred / snap.totalBytes * 100));
+    }, err => {
+      if (token !== uploadTokenRef.current) return; // superseded by a newer image
       console.error("photo upload failed:", err);
       setPhotoError("照片上傳失敗，請確認 Firebase Storage 是否已啟用，或重試一次");
       setPhoto(initial?.photo || ""); // revert the temporary local preview — it's not a real uploaded URL
       setUploading(false);
     }, async () => {
       const url = await getDownloadURL(task.snapshot.ref);
+      if (token !== uploadTokenRef.current) return;
       setPhoto(url);
       setUploading(false);
     });
@@ -2904,7 +2914,7 @@ function ProductForm({
       color: "#5B6169",
       border: "1px solid #D9DBD5",
       borderRadius: 6,
-      cursor: uploading ? "default" : "pointer",
+      cursor: "pointer",
       opacity: uploading ? 0.6 : 1
     }
   }, /*#__PURE__*/React.createElement(Upload, {
@@ -2913,8 +2923,7 @@ function ProductForm({
     type: "file",
     accept: "image/*",
     className: "hidden",
-    onChange: handleFile,
-    disabled: uploading
+    onChange: handleFile
   })), /*#__PURE__*/React.createElement("div", {
     className: "mt-1",
     style: {
