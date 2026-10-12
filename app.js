@@ -2812,10 +2812,31 @@ function ProductForm({
   const [photo, setPhoto] = useState(initial?.photo || "");
   const [photoError, setPhotoError] = useState("");
   const [uploading, setUploading] = useState(false);
+  const uploadingRef = useRef(false);
   const [uploadPct, setUploadPct] = useState(0);
+  uploadingRef.current = uploading;
   const handleFile = e => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (file) startUpload(file);
+    e.target.value = ""; // allow re-picking the same file
+  };
+
+  // paste an image straight from the clipboard (screenshot, "copy image" in a browser, etc.)
+  // anywhere while this form is open. Text pastes into the input fields are left alone.
+  useEffect(() => {
+    const onPaste = e => {
+      const items = Array.from(e.clipboardData?.items || []);
+      const imgItem = items.find(it => it.kind === "file" && it.type.startsWith("image/"));
+      if (!imgItem || uploadingRef.current) return;
+      const file = imgItem.getAsFile();
+      if (!file) return;
+      e.preventDefault();
+      startUpload(file);
+    };
+    document.addEventListener("paste", onPaste);
+    return () => document.removeEventListener("paste", onPaste);
+  }, []);
+  const startUpload = file => {
     if (file.size > 8 * 1024 * 1024) {
       setPhotoError("圖片請控制在 8MB 以內");
       return;
@@ -2894,13 +2915,13 @@ function ProductForm({
     className: "hidden",
     onChange: handleFile,
     disabled: uploading
-  })), photo && !uploading && /*#__PURE__*/React.createElement("div", {
+  })), /*#__PURE__*/React.createElement("div", {
     className: "mt-1",
     style: {
       fontSize: 10,
       color: "#8A9099"
     }
-  }, "點縮圖可放大檢視"))), photoError && /*#__PURE__*/React.createElement("div", {
+  }, "也可以直接按 Ctrl+V 貼上圖片", photo && !uploading ? "　·　點縮圖可放大檢視" : ""))), photoError && /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 11,
       color: "#C1443C"
