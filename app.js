@@ -40,7 +40,14 @@ const C = {
 
 // ---------- helpers ----------
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
-const todayISO = () => new Date().toISOString().slice(0, 10);
+const localISO = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const todayISO = () => localISO(new Date());
+// Monday of the week containing a YYYY-MM-DD date (weeks start Monday)
+const weekStartISO = dateStr => {
+  const d = new Date(dateStr + "T00:00:00");
+  d.setDate(d.getDate() - (d.getDay() + 6) % 7);
+  return localISO(d);
+};
 const toDate = s => s ? new Date(s + "T00:00:00") : null;
 const daysDiff = (planned, actual) => {
   if (!planned || !actual) return null;
@@ -372,6 +379,7 @@ function NPITracker({
   const [productStats, setProductStats] = useState({});
   const [trackingItems, setTrackingItems] = useState([]);
   const [milestoneStatus, setMilestoneStatus] = useState({});
+  const [showMeeting, setShowMeeting] = useState(false);
   const [template, setTemplate] = useState(DEFAULT_STAGE_TEMPLATE);
   const [milestoneTemplate, setMilestoneTemplate] = useState(DEFAULT_MILESTONE_TEMPLATE);
   const [sidebarWidth, setSidebarWidth] = useState(288);
@@ -492,12 +500,24 @@ function NPITracker({
     })();
   }, [selectedId]);
   const selectedProduct = products.find(p => p.id === selectedId) || null;
-  const showDashboard = selectedId === null;
+  const showDashboard = selectedId === null && !showMeeting;
+  useEffect(() => {
+    if (selectedId) setShowMeeting(false);
+  }, [selectedId]);
+  const openProductOrGeneral = id => {
+    if (id === "general") {
+      setSelectedId(null);
+      setShowMeeting(true);
+    } else {
+      setSelectedId(id);
+      setTab("process");
+    }
+  };
 
   // dashboard: pull every product's stage list to compute completion / delay status.
   // Only runs while the dashboard view is actually showing — navigating into a product costs nothing.
   useEffect(() => {
-    if (!showDashboard || products.length === 0) return;
+    if (!showDashboard) return;
     let cancelled = false;
     const DUE_SOON_DAYS = 3;
     (async () => {
@@ -506,6 +526,35 @@ function NPITracker({
       const openTodos = [];
       const milestones = {};
       const today = todayISO();
+      const collectTodos = (productId, productName, companyPN, label, todoList) => {
+        todoList.forEach(t => {
+          if (t.completed) return; // only 未結案
+          // 到期追蹤 comes from todo due dates (stage dates no longer exist in the UI)
+          if (t.dueDate) {
+            const daysDelta = Math.round((toDate(t.dueDate) - toDate(today)) / 86400000);
+            if (daysDelta < 0) tracking.push({
+              productId,
+              productName: label,
+              stageName: t.title || "（未命名待辦）",
+              urgency: "overdue",
+              days: Math.abs(daysDelta)
+            });else if (daysDelta <= DUE_SOON_DAYS) tracking.push({
+              productId,
+              productName: label,
+              stageName: t.title || "（未命名待辦）",
+              urgency: "soon",
+              days: daysDelta
+            });
+          }
+          openTodos.push({
+            productId,
+            productName,
+            companyPN,
+            title: t.title || "（未命名待辦）",
+            dueDate: t.dueDate || null
+          });
+        });
+      };
       for (const p of products) {
         const list = (await storageGet(`stages:${p.id}`)) || [];
         const total = list.length;
@@ -535,39 +584,10 @@ function NPITracker({
           byName[m.name] = m.status;
         });
         milestones[p.id] = byName;
-        list.forEach(s => {
-          if (s.completed || !s.plannedEnd) return;
-          const daysDelta = Math.round((toDate(s.plannedEnd) - toDate(today)) / 86400000);
-          if (daysDelta < 0) {
-            tracking.push({
-              productId: p.id,
-              productName: p.name || "未命名產品",
-              stageName: s.name || "（未命名流程）",
-              urgency: "overdue",
-              days: Math.abs(daysDelta)
-            });
-          } else if (daysDelta <= DUE_SOON_DAYS) {
-            tracking.push({
-              productId: p.id,
-              productName: p.name || "未命名產品",
-              stageName: s.name || "（未命名流程）",
-              urgency: "soon",
-              days: daysDelta
-            });
-          }
-        });
-        const todoList = (await storageGet(`todos:${p.id}`)) || [];
-        todoList.forEach(t => {
-          if (t.completed) return; // only 未結案
-          openTodos.push({
-            productId: p.id,
-            productName: p.name || "未命名產品",
-            companyPN: p.companyPN || "",
-            title: t.title || "（未命名待辦）",
-            dueDate: t.dueDate || null
-          });
-        });
+        collectTodos(p.id, p.name || "未命名產品", p.companyPN || "", p.companyPN || p.name || "未命名產品", (await storageGet(`todos:${p.id}`)) || []);
       }
+      // 「一般事項」: todos from the weekly meeting that don't belong to any product
+      collectTodos("general", "一般事項", "一般事項", "一般事項", (await storageGet("todos:general")) || []);
       tracking.sort((a, b) => {
         if (a.urgency !== b.urgency) return a.urgency === "overdue" ? -1 : 1;
         return a.urgency === "overdue" ? b.days - a.days : a.days - b.days;
@@ -652,7 +672,10 @@ function NPITracker({
       title: "",
       dueDate: "",
       completed: false,
-      logs: []
+      logs: [],
+      owner: "",
+      meetingDate: "",
+      createdAt: new Date().toISOString()
     }]);
   };
   const updateTodo = (id, field, value) => {
@@ -868,35 +891,6 @@ function NPITracker({
     persistStages(stages.map(s => s.id === id ? {
       ...s,
       [field]: value
-    } : s));
-  };
-  const addStageNote = (id, text) => {
-    if (!text.trim()) return;
-    persistStages(stages.map(s => s.id === id ? {
-      ...s,
-      notes: [...(s.notes || []), {
-        id: uid(),
-        text: text.trim(),
-        time: new Date().toISOString(),
-        editedAt: null
-      }]
-    } : s));
-  };
-  const editStageNote = (id, noteId, text) => {
-    if (!text.trim()) return;
-    persistStages(stages.map(s => s.id === id ? {
-      ...s,
-      notes: (s.notes || []).map(n => n.id === noteId ? {
-        ...n,
-        text: text.trim(),
-        editedAt: new Date().toISOString()
-      } : n)
-    } : s));
-  };
-  const deleteStageNote = (id, noteId) => {
-    persistStages(stages.map(s => s.id === id ? {
-      ...s,
-      notes: (s.notes || []).filter(n => n.id !== noteId)
     } : s));
   };
   const deleteStage = id => {
@@ -1115,7 +1109,10 @@ function NPITracker({
   }, /*#__PURE__*/React.createElement(LogOut, {
     size: 14
   })), /*#__PURE__*/React.createElement("button", {
-    onClick: () => setSelectedId(null),
+    onClick: () => {
+      setSelectedId(null);
+      setShowMeeting(false);
+    },
     className: "flex items-center justify-center rounded-md",
     style: {
       width: 32,
@@ -1126,6 +1123,22 @@ function NPITracker({
     },
     title: "總覽儀表板"
   }, /*#__PURE__*/React.createElement(LayoutDashboard, {
+    size: 15
+  })), /*#__PURE__*/React.createElement("button", {
+    onClick: () => {
+      setSelectedId(null);
+      setShowMeeting(true);
+    },
+    className: "flex items-center justify-center rounded-md",
+    style: {
+      width: 32,
+      height: 32,
+      background: showMeeting ? C.ink : "transparent",
+      color: showMeeting ? "#fff" : C.muted,
+      border: `1px solid ${showMeeting ? C.ink : C.border}`
+    },
+    title: "每週會議結論"
+  }, /*#__PURE__*/React.createElement(CalendarDays, {
     size: 15
   })), /*#__PURE__*/React.createElement("button", {
     onClick: () => setShowTemplateSettings(true),
@@ -1248,7 +1261,14 @@ function NPITracker({
     }
   }), /*#__PURE__*/React.createElement("div", {
     className: "flex-1 min-w-0"
-  }, !selectedProduct ? products.length === 0 ? /*#__PURE__*/React.createElement("div", {
+  }, showMeeting && !selectedProduct ? /*#__PURE__*/React.createElement(MeetingPage, {
+    products: products,
+    onOpenProduct: id => {
+      setSelectedId(id);
+      setTab("process");
+    },
+    onSaveError: setSaveError
+  }) : !selectedProduct ? products.length === 0 ? /*#__PURE__*/React.createElement("div", {
     className: "flex items-center justify-center",
     style: {
       minHeight: 500,
@@ -1262,14 +1282,8 @@ function NPITracker({
     allTodos: allTodos,
     milestoneStatus: milestoneStatus,
     milestoneTemplate: milestoneTemplate,
-    onSelect: id => {
-      setSelectedId(id);
-      setTab("process");
-    },
-    onSelectTodo: id => {
-      setSelectedId(id);
-      setTab("process");
-    }
+    onSelect: openProductOrGeneral,
+    onSelectTodo: openProductOrGeneral
   }) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     className: "p-5",
     style: {
@@ -1386,9 +1400,6 @@ function NPITracker({
     onUpdate: updateStage,
     onDelete: deleteStage,
     onReorder: moveStage,
-    onAddNote: addStageNote,
-    onEditNote: editStageNote,
-    onDeleteNote: deleteStageNote,
     pct: pct
   }), /*#__PURE__*/React.createElement("div", {
     className: "mt-6 pt-6",
@@ -1659,7 +1670,7 @@ function DashboardView({
       fontSize: 12,
       color: "#2F6F6B"
     }
-  }, "目前沒有逾期或即將到期（3天內）的流程。")), /*#__PURE__*/React.createElement("div", {
+  }, "目前沒有逾期或即將到期（3天內）的待辦事項。")), /*#__PURE__*/React.createElement("div", {
     className: "mb-6"
   }, /*#__PURE__*/React.createElement("div", {
     style: {
@@ -3561,6 +3572,433 @@ const inputSm = {
   width: "100%"
 };
 const TODO_COLLAPSE_THRESHOLD = 4;
+
+// ---------- 每週會議結論 ----------
+// A second ENTRY POINT for todos, not a second store: everything created here is a normal todo saved under
+// its product (todos:{productId}) — or under "一般事項" (todos:general) — with an extra meetingDate, so it
+// also shows up on that product's own todo list and in the dashboard.
+const GENERAL_ID = "general";
+function MeetingPage({
+  products,
+  onOpenProduct,
+  onSaveError
+}) {
+  const [byProduct, setByProduct] = useState(null); // { [productId|"general"]: todo[] }
+  const [meetingDate, setMeetingDate] = useState(todayISO());
+  const [productId, setProductId] = useState(GENERAL_ID);
+  const [title, setTitle] = useState("");
+  const [owner, setOwner] = useState("");
+  const [dueDate, setDueDate] = useState("");
+  const [logTodo, setLogTodo] = useState(null); // { pid, id }
+  const [openDone, setOpenDone] = useState({}); // weekStart -> expanded
+  const titleRef = useRef(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const next = {};
+      for (const p of products) next[p.id] = (await storageGet(`todos:${p.id}`)) || [];
+      next[GENERAL_ID] = (await storageGet(`todos:${GENERAL_ID}`)) || [];
+      if (!cancelled) setByProduct(next);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [products]);
+  const labelOf = pid => {
+    if (pid === GENERAL_ID) return "一般事項";
+    const p = products.find(x => x.id === pid);
+    return p ? p.companyPN || p.name || "未命名產品" : "（已刪除產品）";
+  };
+  const save = async (pid, list) => {
+    setByProduct(cur => ({
+      ...cur,
+      [pid]: list
+    }));
+    const ok = await storageSet(`todos:${pid}`, list);
+    if (!ok) onSaveError("待辦事項儲存失敗，請重試");
+  };
+  const patchTodo = (pid, id, patch) => save(pid, (byProduct[pid] || []).map(t => t.id === id ? {
+    ...t,
+    ...patch
+  } : t));
+  const addLog = (pid, id, text) => {
+    if (!text.trim()) return;
+    save(pid, (byProduct[pid] || []).map(t => t.id === id ? {
+      ...t,
+      logs: [...(t.logs || []), {
+        id: uid(),
+        text: text.trim(),
+        time: new Date().toISOString(),
+        editedAt: null
+      }]
+    } : t));
+  };
+  const editLog = (pid, id, logId, text) => {
+    if (!text.trim()) return;
+    save(pid, (byProduct[pid] || []).map(t => t.id === id ? {
+      ...t,
+      logs: (t.logs || []).map(l => l.id === logId ? {
+        ...l,
+        text: text.trim(),
+        editedAt: new Date().toISOString()
+      } : l)
+    } : t));
+  };
+  const deleteLog = (pid, id, logId) => {
+    save(pid, (byProduct[pid] || []).map(t => t.id === id ? {
+      ...t,
+      logs: (t.logs || []).filter(l => l.id !== logId)
+    } : t));
+  };
+  const removeTodo = (pid, id) => save(pid, (byProduct[pid] || []).filter(t => t.id !== id));
+  const submit = () => {
+    if (!title.trim() || !byProduct) return;
+    const todo = {
+      id: uid(),
+      title: title.trim(),
+      dueDate: dueDate || "",
+      completed: false,
+      logs: [],
+      owner: owner.trim(),
+      meetingDate: meetingDate || todayISO(),
+      createdAt: new Date().toISOString()
+    };
+    save(productId, [...(byProduct[productId] || []), todo]);
+    setTitle("");
+    setOwner("");
+    setDueDate("");
+    titleRef.current?.focus(); // keep product + meeting date, ready for the next item
+  };
+  const onEnter = e => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      submit();
+    }
+  };
+
+  // every meeting-created todo, grouped by the Monday of its meeting week
+  const weeks = useMemo(() => {
+    if (!byProduct) return [];
+    const map = new Map();
+    Object.entries(byProduct).forEach(([pid, list]) => {
+      (list || []).forEach(t => {
+        if (!t.meetingDate) return;
+        const ws = weekStartISO(t.meetingDate);
+        if (!map.has(ws)) map.set(ws, []);
+        map.get(ws).push({
+          ...t,
+          pid
+        });
+      });
+    });
+    return [...map.entries()].sort((a, b) => a[0] < b[0] ? 1 : -1).map(([ws, items]) => ({
+      ws,
+      items: items.sort((a, b) => a.meetingDate < b.meetingDate ? 1 : a.meetingDate > b.meetingDate ? -1 : 0)
+    }));
+  }, [byProduct]);
+  const thisWeek = weekStartISO(todayISO());
+  const weekEnd = ws => {
+    const d = new Date(ws + "T00:00:00");
+    d.setDate(d.getDate() + 6);
+    return localISO(d);
+  };
+  const md = iso => iso.slice(5).replace("-", "/");
+  const carryOver = weeks.filter(w => w.ws < thisWeek).reduce((n, w) => n + w.items.filter(t => !t.completed).length, 0);
+  const logTarget = logTodo ? (byProduct?.[logTodo.pid] || []).find(t => t.id === logTodo.id) : null;
+  const field = {
+    border: "1px solid #D9DBD5",
+    borderRadius: 6,
+    padding: "7px 9px",
+    fontSize: 14,
+    background: "#fff"
+  };
+  if (!byProduct) return /*#__PURE__*/React.createElement("div", {
+    className: "p-6",
+    style: {
+      fontSize: 13,
+      color: "#8A9099"
+    }
+  }, "載入中…");
+  return /*#__PURE__*/React.createElement("div", {
+    className: "p-6"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "display font-bold",
+    style: {
+      fontSize: 20
+    }
+  }, "每週會議結論"), /*#__PURE__*/React.createElement("div", {
+    className: "mono mb-5",
+    style: {
+      fontSize: 12,
+      color: "#8A9099"
+    }
+  }, "在這裡建立的結論都是各產品的待辦事項，會同步出現在該產品的待辦清單與總覽儀表板", carryOver > 0 && /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "#C1443C"
+    }
+  }, " · 上週與更早還有 ", carryOver, " 項未完成")), /*#__PURE__*/React.createElement("div", {
+    className: "mb-6 p-4",
+    style: {
+      border: "1px solid #E3E4E0",
+      borderRadius: 10,
+      background: "#fff"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      fontWeight: 700,
+      marginBottom: 10
+    }
+  }, "新增會議結論"), /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-wrap items-center",
+    style: {
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "date",
+    value: meetingDate,
+    onChange: e => setMeetingDate(e.target.value),
+    className: "mono",
+    style: field,
+    title: "會議日期（補登舊會議時可修改）"
+  }), /*#__PURE__*/React.createElement("select", {
+    value: productId,
+    onChange: e => setProductId(e.target.value),
+    style: {
+      ...field,
+      maxWidth: 220
+    }
+  }, /*#__PURE__*/React.createElement("option", {
+    value: GENERAL_ID
+  }, "一般事項（不屬於任何產品）"), products.map(p => /*#__PURE__*/React.createElement("option", {
+    key: p.id,
+    value: p.id
+  }, p.companyPN || "—", "\u3000", p.name || "未命名產品"))), /*#__PURE__*/React.createElement("input", {
+    ref: titleRef,
+    value: title,
+    onChange: e => setTitle(e.target.value),
+    onKeyDown: onEnter,
+    placeholder: "結論 / 要做的事",
+    style: {
+      ...field,
+      flex: 1,
+      minWidth: 200
+    }
+  }), /*#__PURE__*/React.createElement("input", {
+    value: owner,
+    onChange: e => setOwner(e.target.value),
+    onKeyDown: onEnter,
+    placeholder: "負責人",
+    style: {
+      ...field,
+      width: 100
+    }
+  }), /*#__PURE__*/React.createElement("input", {
+    type: "date",
+    value: dueDate,
+    onChange: e => setDueDate(e.target.value),
+    onKeyDown: onEnter,
+    className: "mono",
+    style: field,
+    title: "到期日（選填）"
+  }), /*#__PURE__*/React.createElement("button", {
+    onClick: submit,
+    className: "px-4 py-2",
+    style: {
+      fontSize: 13,
+      color: "#fff",
+      background: title.trim() ? "#1B2430" : "#B9BEC6",
+      borderRadius: 6
+    }
+  }, "新增")), /*#__PURE__*/React.createElement("div", {
+    className: "mt-2",
+    style: {
+      fontSize: 11,
+      color: "#8A9099"
+    }
+  }, "在標題或負責人欄按 Enter 即可新增，產品與會議日期會保留，可以直接輸入下一筆。")), weeks.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    className: "text-center py-10",
+    style: {
+      border: "1px dashed #D9DBD5",
+      borderRadius: 8,
+      fontSize: 13,
+      color: "#8A9099"
+    }
+  }, "還沒有會議結論。上方新增後，會依「會議週」分組顯示，並追蹤完成了沒。") : /*#__PURE__*/React.createElement("div", {
+    className: "space-y-4"
+  }, weeks.map(w => {
+    const done = w.items.filter(t => t.completed).length;
+    const allDone = done === w.items.length;
+    const isThis = w.ws === thisWeek;
+    const expanded = !allDone || isThis || openDone[w.ws];
+    return /*#__PURE__*/React.createElement("div", {
+      key: w.ws,
+      style: {
+        border: "1px solid #E3E4E0",
+        borderRadius: 10,
+        background: "#fff",
+        overflow: "hidden"
+      }
+    }, /*#__PURE__*/React.createElement("button", {
+      onClick: () => allDone && !isThis && setOpenDone(o => ({
+        ...o,
+        [w.ws]: !o[w.ws]
+      })),
+      className: "flex items-center gap-2 w-full px-4 py-2.5",
+      style: {
+        borderBottom: expanded ? "1px solid #F0F1EC" : "none",
+        textAlign: "left",
+        cursor: allDone && !isThis ? "pointer" : "default",
+        background: !allDone && !isThis ? "#FFFBFA" : "#fff"
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 13,
+        fontWeight: 700,
+        color: "#1B2430"
+      }
+    }, isThis ? "本週 " : "", md(w.ws), " – ", md(weekEnd(w.ws)), " 週會"), /*#__PURE__*/React.createElement("span", {
+      className: "mono",
+      style: {
+        fontSize: 11,
+        color: allDone ? "#2F6F6B" : !isThis ? "#C1443C" : "#8A9099"
+      }
+    }, done, " / ", w.items.length, " 完成"), allDone && !isThis && /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 11,
+        color: "#8A9099",
+        marginLeft: "auto"
+      }
+    }, expanded ? "收合" : "展開")), expanded && /*#__PURE__*/React.createElement("div", null, w.items.map((t, i) => {
+      const logs = t.logs || [];
+      const latest = logs.length ? [...logs].sort((a, b) => new Date(b.time) - new Date(a.time))[0] : null;
+      return /*#__PURE__*/React.createElement("div", {
+        key: t.id,
+        className: "flex items-center gap-3 px-4 py-2",
+        style: {
+          borderTop: i === 0 ? "none" : "1px solid #F8F8F6",
+          opacity: t.completed ? 0.45 : 1
+        }
+      }, /*#__PURE__*/React.createElement("input", {
+        type: "checkbox",
+        checked: !!t.completed,
+        onChange: () => patchTodo(t.pid, t.id, {
+          completed: !t.completed
+        }),
+        className: "shrink-0",
+        style: {
+          width: 18,
+          height: 18
+        }
+      }), /*#__PURE__*/React.createElement("span", {
+        className: "mono shrink-0",
+        style: {
+          fontSize: 11,
+          color: "#8A9099",
+          width: 38
+        }
+      }, md(t.meetingDate)), /*#__PURE__*/React.createElement("button", {
+        onClick: () => t.pid !== GENERAL_ID && onOpenProduct(t.pid),
+        title: t.pid === GENERAL_ID ? "一般事項" : "開啟此產品",
+        className: "shrink-0 truncate",
+        style: {
+          fontSize: 12,
+          fontWeight: 700,
+          color: "#1B2430",
+          background: "#F0F1EC",
+          borderRadius: 4,
+          padding: "2px 8px",
+          maxWidth: 130,
+          cursor: t.pid === GENERAL_ID ? "default" : "pointer"
+        }
+      }, labelOf(t.pid)), /*#__PURE__*/React.createElement("input", {
+        value: t.title || "",
+        onChange: e => patchTodo(t.pid, t.id, {
+          title: e.target.value
+        }),
+        className: "flex-1 min-w-0",
+        style: {
+          border: "none",
+          outline: "none",
+          fontSize: 14,
+          fontWeight: 600,
+          background: "transparent",
+          textDecoration: t.completed ? "line-through" : "none"
+        }
+      }), /*#__PURE__*/React.createElement("input", {
+        value: t.owner || "",
+        placeholder: "負責人",
+        onChange: e => patchTodo(t.pid, t.id, {
+          owner: e.target.value
+        }),
+        className: "shrink-0",
+        style: {
+          border: "1px solid #E3E4E0",
+          borderRadius: 5,
+          padding: "4px 7px",
+          fontSize: 13,
+          width: 80
+        }
+      }), /*#__PURE__*/React.createElement("div", {
+        className: "flex items-center gap-2 shrink-0",
+        style: {
+          width: 190
+        }
+      }, /*#__PURE__*/React.createElement("input", {
+        type: "date",
+        value: t.dueDate || "",
+        onChange: e => patchTodo(t.pid, t.id, {
+          dueDate: e.target.value
+        }),
+        className: "mono",
+        style: {
+          border: "1px solid #E3E4E0",
+          borderRadius: 5,
+          padding: "4px 6px",
+          fontSize: 13
+        }
+      }), /*#__PURE__*/React.createElement(DueBadge, {
+        dateStr: t.dueDate,
+        completed: t.completed
+      })), /*#__PURE__*/React.createElement("button", {
+        onClick: () => setLogTodo({
+          pid: t.pid,
+          id: t.id
+        }),
+        className: "flex items-center gap-1.5 shrink-0 px-2 py-1 min-w-0",
+        style: {
+          border: "1px dashed #D9DBD5",
+          borderRadius: 6,
+          width: 150
+        }
+      }, /*#__PURE__*/React.createElement(MessageSquare, {
+        size: 12,
+        color: "#8A9099",
+        className: "shrink-0"
+      }), /*#__PURE__*/React.createElement("span", {
+        className: "truncate",
+        style: {
+          fontSize: 12,
+          color: latest ? "#5B6169" : "#8A9099"
+        }
+      }, latest ? latest.text : "記歷程")), /*#__PURE__*/React.createElement("button", {
+        onClick: () => removeTodo(t.pid, t.id),
+        className: "shrink-0",
+        style: {
+          color: "#B4B7AF"
+        }
+      }, /*#__PURE__*/React.createElement(Trash2, {
+        size: 14
+      })));
+    })));
+  })), logTarget && /*#__PURE__*/React.createElement(TodoLogModal, {
+    todo: logTarget,
+    onAdd: text => addLog(logTodo.pid, logTodo.id, text),
+    onEdit: (logId, text) => editLog(logTodo.pid, logTodo.id, logId, text),
+    onDelete: logId => deleteLog(logTodo.pid, logTodo.id, logId),
+    onClose: () => setLogTodo(null)
+  }));
+}
 function daysDiffFromToday(dateStr) {
   if (!dateStr) return null;
   return Math.round((toDate(dateStr) - toDate(todayISO())) / 86400000);
@@ -3693,6 +4131,28 @@ function TodoPanel({
         fontWeight: 600,
         background: "transparent",
         textDecoration: t.completed ? "line-through" : "none"
+      }
+    }), t.meetingDate && /*#__PURE__*/React.createElement("span", {
+      className: "mono shrink-0",
+      title: "這筆待辦是在這次週會建立的",
+      style: {
+        fontSize: 10,
+        color: "#5B6169",
+        background: "#F0F1EC",
+        borderRadius: 4,
+        padding: "2px 6px"
+      }
+    }, "會議 ", t.meetingDate.slice(5).replace("-", "/")), /*#__PURE__*/React.createElement("input", {
+      value: t.owner || "",
+      placeholder: "負責人",
+      onChange: e => onUpdate(t.id, "owner", e.target.value),
+      className: "shrink-0",
+      style: {
+        border: "1px solid #D9DBD5",
+        borderRadius: 5,
+        padding: "5px 8px",
+        fontSize: 13,
+        width: 84
       }
     }), /*#__PURE__*/React.createElement("div", {
       className: "flex items-center gap-2 shrink-0",
@@ -4145,15 +4605,10 @@ function ProcessPanel({
   onUpdate,
   onDelete,
   onReorder,
-  onAddNote,
-  onEditNote,
-  onDeleteNote,
   pct
 }) {
   const [depModalId, setDepModalId] = useState(null);
-  const [noteModalId, setNoteModalId] = useState(null);
   const depModalStage = stages.find(s => s.id === depModalId) || null;
-  const noteModalStage = stages.find(s => s.id === noteModalId) || null;
 
   // larger text just for this table — scoped locally so it doesn't affect the
   // samples / template / pricing tables, which weren't asked to change.
@@ -4211,7 +4666,7 @@ function ProcessPanel({
     style: {
       borderCollapse: "collapse",
       width: "100%",
-      minWidth: 930,
+      minWidth: 800,
       fontSize: 14
     }
   }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", {
@@ -4221,7 +4676,7 @@ function ProcessPanel({
       top: 0,
       zIndex: 1
     }
-  }, ["#", "完成", "流程名稱", "負責單位", "工作內容", "產出文件", "相依前置", "備註", ""].map((h, i) => /*#__PURE__*/React.createElement("th", {
+  }, ["#", "完成", "流程名稱", "負責單位", "工作內容", "產出文件", "相依前置", ""].map((h, i) => /*#__PURE__*/React.createElement("th", {
     key: i,
     className: "uppercase tracking-wide",
     style: {
@@ -4352,43 +4807,6 @@ function ProcessPanel({
     }), " ", deps.length ? `${deps.length} 項` : "設定")), /*#__PURE__*/React.createElement("td", {
       style: {
         ...pTdStyle,
-        minWidth: 130
-      }
-    }, /*#__PURE__*/React.createElement("button", {
-      onClick: () => setNoteModalId(s.id),
-      className: "w-full",
-      style: {
-        textAlign: "left",
-        padding: "4px 8px",
-        border: `1.5px solid ${(s.notes || []).length > 0 ? "#1B2430" : "#B9BEC6"}`,
-        borderRadius: 6,
-        background: (s.notes || []).length > 0 ? "#EEF1F6" : "#fff"
-      }
-    }, (s.notes || []).length > 0 ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
-      className: "flex items-center gap-1",
-      style: {
-        fontSize: 13,
-        color: "#1B2430"
-      }
-    }, /*#__PURE__*/React.createElement(MessageSquare, {
-      size: 13
-    }), " ", s.notes.length, " 則"), /*#__PURE__*/React.createElement("div", {
-      className: "truncate",
-      style: {
-        fontSize: 12,
-        color: "#8A9099"
-      }
-    }, s.notes[s.notes.length - 1].text)) : /*#__PURE__*/React.createElement("div", {
-      className: "flex items-center gap-1",
-      style: {
-        fontSize: 13,
-        color: "#8A9099"
-      }
-    }, /*#__PURE__*/React.createElement(MessageSquare, {
-      size: 13
-    }), " 新增備註"))), /*#__PURE__*/React.createElement("td", {
-      style: {
-        ...pTdStyle,
         textAlign: "center"
       }
     }, /*#__PURE__*/React.createElement("button", {
@@ -4404,12 +4822,6 @@ function ProcessPanel({
     allStages: stages,
     onToggle: targetId => toggleDep(depModalStage.id, targetId),
     onClose: () => setDepModalId(null)
-  }), noteModalStage && /*#__PURE__*/React.createElement(NotesModal, {
-    stage: noteModalStage,
-    onAdd: text => onAddNote(noteModalStage.id, text),
-    onEdit: (noteId, text) => onEditNote(noteModalStage.id, noteId, text),
-    onDelete: noteId => onDeleteNote(noteModalStage.id, noteId),
-    onClose: () => setNoteModalId(null)
   }));
 }
 function shortDate(s) {
