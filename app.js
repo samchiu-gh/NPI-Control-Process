@@ -3676,24 +3676,28 @@ function MeetingPage({
     }
   };
 
-  // every meeting-created todo, grouped by the Monday of its meeting week
+  // every todo (not only meeting-created ones), grouped by the Monday of its meeting week.
+  // Date used: meetingDate, else the day it was created; todos with neither (very old) go to the "none" group.
+  const effDate = t => t.meetingDate || (t.createdAt ? localISO(new Date(t.createdAt)) : "");
   const weeks = useMemo(() => {
     if (!byProduct) return [];
     const map = new Map();
     Object.entries(byProduct).forEach(([pid, list]) => {
       (list || []).forEach(t => {
-        if (!t.meetingDate) return;
-        const ws = weekStartISO(t.meetingDate);
+        if (!t.title && !t.meetingDate) return; // skip untouched blank rows
+        const d = effDate(t);
+        const ws = d ? weekStartISO(d) : "none";
         if (!map.has(ws)) map.set(ws, []);
         map.get(ws).push({
           ...t,
-          pid
+          pid,
+          _d: d
         });
       });
     });
-    return [...map.entries()].sort((a, b) => a[0] < b[0] ? 1 : -1).map(([ws, items]) => ({
+    return [...map.entries()].sort((a, b) => a[0] === "none" ? 1 : b[0] === "none" ? -1 : a[0] < b[0] ? 1 : -1).map(([ws, items]) => ({
       ws,
-      items: items.sort((a, b) => a.meetingDate < b.meetingDate ? 1 : a.meetingDate > b.meetingDate ? -1 : 0)
+      items: items.sort((a, b) => a._d < b._d ? 1 : a._d > b._d ? -1 : 0)
     }));
   }, [byProduct]);
   const thisWeek = weekStartISO(todayISO());
@@ -3703,7 +3707,7 @@ function MeetingPage({
     return localISO(d);
   };
   const md = iso => iso.slice(5).replace("-", "/");
-  const carryOver = weeks.filter(w => w.ws < thisWeek).reduce((n, w) => n + w.items.filter(t => !t.completed).length, 0);
+  const carryOver = weeks.filter(w => w.ws === "none" || w.ws < thisWeek).reduce((n, w) => n + w.items.filter(t => !t.completed).length, 0);
   const logTarget = logTodo ? (byProduct?.[logTodo.pid] || []).find(t => t.id === logTodo.id) : null;
   const field = {
     border: "1px solid #D9DBD5",
@@ -3732,7 +3736,7 @@ function MeetingPage({
       fontSize: 12,
       color: "#8A9099"
     }
-  }, "在這裡建立的結論都是各產品的待辦事項，會同步出現在該產品的待辦清單與總覽儀表板", carryOver > 0 && /*#__PURE__*/React.createElement("span", {
+  }, "這裡與各產品的待辦清單是同一份資料，兩邊新增、修改、打勾都會同步（依建立日期歸入該週）", carryOver > 0 && /*#__PURE__*/React.createElement("span", {
     style: {
       color: "#C1443C"
     }
@@ -3824,7 +3828,7 @@ function MeetingPage({
       fontSize: 13,
       color: "#8A9099"
     }
-  }, "還沒有會議結論。上方新增後，會依「會議週」分組顯示，並追蹤完成了沒。") : /*#__PURE__*/React.createElement("div", {
+  }, "還沒有待辦。上方新增後，會依週分組顯示，並追蹤完成了沒。") : /*#__PURE__*/React.createElement("div", {
     className: "space-y-4"
   }, weeks.map(w => {
     const done = w.items.filter(t => t.completed).length;
@@ -3857,7 +3861,7 @@ function MeetingPage({
         fontWeight: 700,
         color: "#1B2430"
       }
-    }, isThis ? "本週 " : "", md(w.ws), " – ", md(weekEnd(w.ws)), " 週會"), /*#__PURE__*/React.createElement("span", {
+    }, w.ws === "none" ? "更早的待辦（未記錄日期）" : /*#__PURE__*/React.createElement(React.Fragment, null, isThis ? "本週 " : "", md(w.ws), " – ", md(weekEnd(w.ws)), " 週會")), /*#__PURE__*/React.createElement("span", {
       className: "mono",
       style: {
         fontSize: 11,
@@ -3897,7 +3901,7 @@ function MeetingPage({
           color: "#8A9099",
           width: 38
         }
-      }, md(t.meetingDate)), /*#__PURE__*/React.createElement("button", {
+      }, t._d ? md(t._d) : "—"), /*#__PURE__*/React.createElement("button", {
         onClick: () => t.pid !== GENERAL_ID && onOpenProduct(t.pid),
         title: t.pid === GENERAL_ID ? "一般事項" : "開啟此產品",
         className: "shrink-0 truncate",
