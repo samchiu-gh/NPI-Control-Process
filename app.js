@@ -1552,73 +1552,6 @@ function DashboardView({
     }
   }, products.length, " 個計畫"), /*#__PURE__*/React.createElement("div", {
     className: "mb-6"
-  }, tracking && tracking.length > 0 ? /*#__PURE__*/React.createElement("div", {
-    style: {
-      border: "1px solid #E3E4E0",
-      borderRadius: 10,
-      background: "#fff",
-      overflow: "hidden"
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center gap-2 px-4 py-2.5",
-    style: {
-      borderBottom: "1px solid #F0F1EC"
-    }
-  }, /*#__PURE__*/React.createElement(AlertTriangle, {
-    size: 14,
-    color: "#C1443C"
-  }), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 13,
-      fontWeight: 700,
-      color: "#1B2430"
-    }
-  }, "到期追蹤"), /*#__PURE__*/React.createElement("span", {
-    className: "mono",
-    style: {
-      fontSize: 11,
-      color: "#8A9099"
-    }
-  }, tracking.length, " 項需要留意")), /*#__PURE__*/React.createElement("div", null, tracking.map((t, i) => /*#__PURE__*/React.createElement("button", {
-    key: `${t.productId}-${t.stageName}-${i}`,
-    onClick: () => onSelect(t.productId),
-    className: "w-full flex items-center gap-3 px-4 py-2",
-    style: {
-      textAlign: "left",
-      borderTop: i === 0 ? "none" : "1px solid #F8F8F6",
-      background: t.urgency === "overdue" ? "#FFFBFA" : "#FFFDF8"
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "shrink-0 px-1.5 py-0.5",
-    style: {
-      fontSize: 10,
-      fontWeight: 700,
-      borderRadius: 4,
-      color: t.urgency === "overdue" ? "#C1443C" : "#B8790A",
-      background: t.urgency === "overdue" ? "#FBEDEC" : "#FBF2E2"
-    }
-  }, t.urgency === "overdue" ? `逾期 ${t.days} 天` : t.days === 0 ? "今天到期" : `${t.days} 天後到期`), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 13,
-      fontWeight: 600,
-      color: "#1B2430"
-    }
-  }, t.productName), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 12,
-      color: "#8A9099"
-    }
-  }, "· ", t.stageName))))) : /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center gap-2 px-4 py-3",
-    style: {
-      border: "1px solid #E3E4E0",
-      borderRadius: 10,
-      background: "#F4FAF9",
-      fontSize: 12,
-      color: "#2F6F6B"
-    }
-  }, "目前沒有逾期或即將到期（3天內）的待辦事項。")), /*#__PURE__*/React.createElement("div", {
-    className: "mb-6"
   }, /*#__PURE__*/React.createElement("div", {
     style: {
       border: "1px solid #E3E4E0",
@@ -3848,7 +3781,7 @@ function TodoPanel({
       fontSize: 11,
       color: "#8A9099"
     }
-  }, "輕量記事用，不綁特定流程。設定到期日的話，快到期或逾期會自動出現在「總覽儀表板」的到期追蹤裡。")), /*#__PURE__*/React.createElement("button", {
+  }, "輕量記事用，不綁特定流程。所有未完成的待辦會彙整在「總覽儀表板」的所有待辦事項裡，並標示逾期／到期。")), /*#__PURE__*/React.createElement("button", {
     onClick: onAdd,
     className: "flex items-center gap-1 px-3 py-1.5 shrink-0",
     style: {
