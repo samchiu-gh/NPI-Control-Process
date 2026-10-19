@@ -3386,6 +3386,7 @@ function MeetingPage({
     Object.entries(byProduct).forEach(([pid, list]) => {
       (list || []).forEach(t => {
         if (!t.title && !t.meetingDate) return; // skip untouched blank rows
+        if (t.completed) return; // finished items are not shown on this page
         const d = effDate(t);
         const ws = d ? weekStartISO(d) : "none";
         if (!map.has(ws)) map.set(ws, []);
@@ -3529,7 +3530,7 @@ function MeetingPage({
       fontSize: 13,
       color: "#8A9099"
     }
-  }, "還沒有待辦。上方新增後，會依週分組顯示，並追蹤完成了沒。") : /*#__PURE__*/React.createElement("div", {
+  }, "目前沒有未完成的待辦。") : /*#__PURE__*/React.createElement("div", {
     className: "space-y-4"
   }, weeks.map(w => {
     const done = w.items.filter(t => t.completed).length;
@@ -3566,9 +3567,9 @@ function MeetingPage({
       className: "mono",
       style: {
         fontSize: 11,
-        color: allDone ? "#2F6F6B" : !isThis ? "#C1443C" : "#8A9099"
+        color: !isThis ? "#C1443C" : "#8A9099"
       }
-    }, done, " / ", w.items.length, " 完成"), allDone && !isThis && /*#__PURE__*/React.createElement("span", {
+    }, w.items.length, " 項未完成"), allDone && !isThis && /*#__PURE__*/React.createElement("span", {
       style: {
         fontSize: 11,
         color: "#8A9099",
