@@ -1535,32 +1535,6 @@ function DashboardView({
   onSelect,
   onSelectTodo
 }) {
-  const [viewMode, setViewMode] = useState("product"); // "product" | "stage"
-  const overallDelayed = products.filter(p => stats[p.id]?.delayed).length;
-
-  // group products by their current stage name (exact text match — see note in UI below)
-  const stageGroups = useMemo(() => {
-    const map = new Map();
-    products.forEach(p => {
-      const st = stats[p.id];
-      const key = !st || st.total === 0 ? "尚未建立流程" : st.currentStageName || "已全部完成";
-      if (!map.has(key)) map.set(key, []);
-      map.get(key).push(p);
-    });
-    const entries = [...map.entries()];
-    const pinnedLast = ["已全部完成", "尚未建立流程"];
-    entries.sort((a, b) => {
-      const aPinned = pinnedLast.indexOf(a[0]);
-      const bPinned = pinnedLast.indexOf(b[0]);
-      if (aPinned !== -1 || bPinned !== -1) {
-        if (aPinned === -1) return -1;
-        if (bPinned === -1) return 1;
-        return aPinned - bPinned;
-      }
-      return b[1].length - a[1].length; // busiest stage first
-    });
-    return entries;
-  }, [products, stats]);
   return /*#__PURE__*/React.createElement("div", {
     className: "p-6"
   }, /*#__PURE__*/React.createElement("div", {
@@ -1570,40 +1544,13 @@ function DashboardView({
     style: {
       fontSize: 20
     }
-  }, "總覽儀表板"), /*#__PURE__*/React.createElement("div", {
-    className: "flex",
-    style: {
-      border: "1px solid #D9DBD5",
-      borderRadius: 6,
-      overflow: "hidden"
-    }
-  }, /*#__PURE__*/React.createElement("button", {
-    onClick: () => setViewMode("product"),
-    className: "px-3 py-1.5",
-    style: {
-      fontSize: 12,
-      color: viewMode === "product" ? "#fff" : "#5B6169",
-      background: viewMode === "product" ? "#1B2430" : "#fff"
-    }
-  }, "依產品"), /*#__PURE__*/React.createElement("button", {
-    onClick: () => setViewMode("stage"),
-    className: "px-3 py-1.5",
-    style: {
-      fontSize: 12,
-      color: viewMode === "stage" ? "#fff" : "#5B6169",
-      background: viewMode === "stage" ? "#1B2430" : "#fff"
-    }
-  }, "依階段"))), /*#__PURE__*/React.createElement("div", {
+  }, "總覽儀表板")), /*#__PURE__*/React.createElement("div", {
     className: "mono mb-5",
     style: {
       fontSize: 12,
       color: "#8A9099"
     }
-  }, products.length, " 個計畫", overallDelayed > 0 && /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: "#C1443C"
-    }
-  }, " · ", overallDelayed, " 個有流程落後")), /*#__PURE__*/React.createElement("div", {
+  }, products.length, " 個計畫"), /*#__PURE__*/React.createElement("div", {
     className: "mb-6"
   }, tracking && tracking.length > 0 ? /*#__PURE__*/React.createElement("div", {
     style: {
@@ -1790,186 +1737,7 @@ function DashboardView({
       borderRadius: 2,
       background: m.color
     }
-  }), m.label))))))), viewMode === "stage" ? /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
-    className: "mb-3",
-    style: {
-      fontSize: 11,
-      color: "#8A9099"
-    }
-  }, "依「目前階段」分組——只有流程名稱完全一樣的產品才會歸在同一組，如果不同產品的階段名稱寫法不一致（例如一個叫「功能測試」、一個叫「功能檢測」），會被當成不同組，不會自動合併。"), /*#__PURE__*/React.createElement("div", {
-    className: "space-y-3"
-  }, stageGroups.map(([stageName, list]) => /*#__PURE__*/React.createElement("div", {
-    key: stageName,
-    style: {
-      border: "1px solid #E3E4E0",
-      borderRadius: 10,
-      background: "#fff",
-      padding: 14
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center gap-2 mb-3"
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 14,
-      fontWeight: 700,
-      color: "#1B2430"
-    }
-  }, stageName), /*#__PURE__*/React.createElement("div", {
-    className: "mono",
-    style: {
-      fontSize: 11,
-      color: "#8A9099"
-    }
-  }, list.length, " 個產品")), /*#__PURE__*/React.createElement("div", {
-    className: "flex flex-wrap gap-2"
-  }, list.map(p => /*#__PURE__*/React.createElement("button", {
-    key: p.id,
-    onClick: () => onSelect(p.id),
-    className: "flex items-center gap-2 pl-1.5 pr-3 py-1.5",
-    style: {
-      border: "1px solid #E3E4E0",
-      borderRadius: 999,
-      background: stats[p.id]?.delayed ? "#FFF9F8" : "#FAFAF8"
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center justify-center rounded-full shrink-0 overflow-hidden",
-    style: {
-      width: 24,
-      height: 24,
-      background: "#F0F1EC"
-    }
-  }, p.photo ? /*#__PURE__*/React.createElement("img", {
-    src: p.photo,
-    alt: "",
-    className: "w-full h-full object-cover"
-  }) : /*#__PURE__*/React.createElement(Package, {
-    size: 11,
-    color: "#B4B7AF"
-  })), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 12,
-      fontWeight: 600,
-      color: "#1B2430"
-    }
-  }, p.name || "未命名產品"), stats[p.id]?.delayed && /*#__PURE__*/React.createElement(AlertTriangle, {
-    size: 11,
-    color: "#C1443C"
-  })))))))) : /*#__PURE__*/React.createElement("div", {
-    style: {
-      border: "1px solid #E3E4E0",
-      borderRadius: 10,
-      background: "#fff",
-      overflow: "hidden"
-    }
-  }, products.map((p, i) => {
-    const st = stats[p.id];
-    const total = st?.total ?? 0;
-    const completed = st?.completed ?? 0;
-    const pctDone = total > 0 ? Math.round(completed / total * 100) : 0;
-    const delayed = st?.delayed;
-    const currentStageName = st?.currentStageName;
-    const daysLeft = p.plannedEndDate ? Math.round((toDate(p.plannedEndDate) - toDate(todayISO())) / 86400000) : null;
-    return /*#__PURE__*/React.createElement("button", {
-      key: p.id,
-      onClick: () => onSelect(p.id),
-      className: "w-full flex items-center gap-4 px-4 py-3",
-      style: {
-        textAlign: "left",
-        borderTop: i === 0 ? "none" : "1px solid #F0F1EC",
-        background: "#fff"
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      className: "flex items-center gap-2.5 shrink-0",
-      style: {
-        width: 190
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      className: "flex items-center justify-center rounded shrink-0 overflow-hidden",
-      style: {
-        width: 36,
-        height: 36,
-        background: "#F0F1EC"
-      }
-    }, p.photo ? /*#__PURE__*/React.createElement("img", {
-      src: p.photo,
-      alt: "",
-      className: "w-full h-full object-cover"
-    }) : /*#__PURE__*/React.createElement(Package, {
-      size: 15,
-      color: "#B4B7AF"
-    })), /*#__PURE__*/React.createElement("div", {
-      className: "min-w-0 flex-1"
-    }, /*#__PURE__*/React.createElement("div", {
-      className: "truncate",
-      style: {
-        fontSize: 13,
-        fontWeight: 700,
-        color: "#1B2430"
-      }
-    }, p.name || "未命名產品"), /*#__PURE__*/React.createElement("div", {
-      className: "mono truncate",
-      style: {
-        fontSize: 10,
-        color: "#8A9099"
-      }
-    }, p.companyPN || "—"))), /*#__PURE__*/React.createElement("div", {
-      className: "flex-1 min-w-0"
-    }, /*#__PURE__*/React.createElement("div", {
-      style: {
-        height: 7,
-        background: "#F0F1EC",
-        borderRadius: 4,
-        overflow: "hidden"
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      style: {
-        height: "100%",
-        width: `${pctDone}%`,
-        background: delayed ? "#C1443C" : pctDone === 100 ? "#2F6F6B" : "#1B2430"
-      }
-    })), total > 0 && /*#__PURE__*/React.createElement("div", {
-      className: "truncate mt-1",
-      style: {
-        fontSize: 11,
-        color: currentStageName ? "#5B6169" : "#2F6F6B"
-      }
-    }, currentStageName ? `目前階段：${currentStageName}` : "已全部完成")), /*#__PURE__*/React.createElement("div", {
-      className: "mono text-right shrink-0",
-      style: {
-        width: 70,
-        fontSize: 12,
-        color: "#8A9099"
-      }
-    }, completed, "/", total, /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontSize: 11,
-        color: "#1B2430",
-        fontWeight: 600
-      }
-    }, pctDone, "%")), /*#__PURE__*/React.createElement("div", {
-      className: "shrink-0",
-      style: {
-        width: 56
-      }
-    }, delayed && /*#__PURE__*/React.createElement("span", {
-      className: "flex items-center gap-0.5 px-1.5 py-0.5 justify-center",
-      style: {
-        fontSize: 10,
-        color: "#C1443C",
-        background: "#FBEDEC",
-        borderRadius: 4
-      }
-    }, /*#__PURE__*/React.createElement(AlertTriangle, {
-      size: 10
-    }), "落後")), /*#__PURE__*/React.createElement("div", {
-      className: "text-right shrink-0",
-      style: {
-        width: 110,
-        fontSize: 11,
-        color: daysLeft !== null && daysLeft < 0 ? "#C1443C" : "#8A9099"
-      }
-    }, daysLeft !== null ? daysLeft < 0 ? `已超過 ${Math.abs(daysLeft)} 天` : `剩 ${daysLeft} 天` : "—"));
-  })), /*#__PURE__*/React.createElement("div", {
+  }), m.label))))))), /*#__PURE__*/React.createElement("div", {
     className: "mt-6"
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex items-center gap-2 mb-3"
